@@ -10,98 +10,80 @@ import re
 FONT_PATH = "Nyala.ttf"
 BG_PATH = "1000123189.jpg"
 
-st.set_page_config(page_title="Fayda Auto-Convert Pro", layout="wide")
+st.set_page_config(page_title="Fayda Professional Fixer", layout="wide")
 
-def clean_name_text(text):
-    # ከስም ውስጥ ቁጥሮችን እና አላስፈላጊ ምልክቶችን ብቻ ያጠፋል
-    # አማርኛ፣ እንግሊዝኛ እና ክፍት ቦታን (Space) ያስቀራል
-    cleaned = re.sub(r'[^ሀ-ፐአ-ዘ\sA-Za-z]', '', text)
-    # ከአንድ በላይ የሆኑ ክፍት ቦታዎችን ወደ አንድ ይቀንሳል
-    cleaned = re.sub(r'\s+', ' ', cleaned)
-    return cleaned.strip()
-
-def extract_id_details(text):
-    details = {"name": "", "dob": ""}
+def get_structured_data(text):
+    # መረጃዎችን ለመለየት የሚያገለግል ተግባር
+    data = {"amh_name": "", "eng_name": "", "dates": ""}
+    
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     
+    # 1. ስም ፍለጋ (ከ Full Name በታች ያሉትን ሁለት መስመሮች መፈለግ)
     for i, line in enumerate(lines):
         if "Full Name" in line or "ሙሉ ስም" in line:
-            # ርዕሱን ያጠፋል
-            raw_name = re.sub(r'Full Name|ሙሉ ስም|[:|;]', '', line).strip()
-            # መስመሩ ባዶ ከሆነ ቀጣዩን መስመር ይወስዳል
-            if not raw_name and i+1 < len(lines):
-                raw_name = lines[i+1]
-            details["name"] = clean_name_text(raw_name)
-            
-    # ቀን ፍለጋ፦ ሁሉንም ቀኖች ያገኛል (ለምሳሌ 03/10/1994 እና 2002/06/10)
-    # የ '|' ምልክትን እና ሌሎች ምልክቶችን አጥፍቶ ቀኖቹን ብቻ ያስቀራል
-    dates = re.findall(r'\d{2,4}/\d{2}/\d{2,4}', text)
-    if dates:
-        # ሁሉንም የተገኙ ቀኖች በመስመር አገናኝቶ ያሳያል
-        details["dob"] = " | ".join(dates)
+            if i + 1 < len(lines):
+                data["amh_name"] = re.sub(r'[^ሀ-ፐአ-ዘ\s]', '', lines[i+1]).strip()
+            if i + 2 < len(lines):
+                data["eng_name"] = re.sub(r'[^A-Za-z\s]', '', lines[i+2]).strip()
+    
+    # 2. ቀን ፍለጋ (ሁሉንም ቀኖች ማውጣት)
+    found_dates = re.findall(r'\d{2,4}/\w+/\d{2,4}|\d{2,4}/\d{2}/\d{2,4}', text)
+    if found_dates:
+        data["dates"] = " | ".join(found_dates)
         
-    return details
+    return data
 
-st.title("🪪 የፋይዳ መታወቂያ ራስ-ሰር ማቀነባበሪያ (የተስተካከለ)")
+st.title("🪪 ፋይዳ ፕሮፌሽናል ማቀነባበሪያ")
 
-uploaded_file = st.file_uploader("የቁም መታወቂያ ምስል እዚህ ያስገቡ", type=['png', 'jpg', 'jpeg'])
+uploaded_file = st.file_uploader("የቁም መታወቂያውን ይጫኑ", type=['jpg', 'jpeg', 'png'])
 
-if uploaded_file is not None:
+if uploaded_file:
     file_bytes = uploaded_file.read()
     image_cv = cv2.imdecode(np.frombuffer(file_bytes, np.uint8), cv2.IMREAD_COLOR)
     h, w = image_cv.shape[:2]
 
-    # መረጃን አስቀድሞ ለማየት እና ለማረም
-    if st.button("መረጃውን መጀመሪያ አውጣ"):
-        gray = cv2.cvtColor(image_cv, cv2.COLOR_BGR2GRAY)
-        raw_text = pytesseract.image_to_string(gray, lang='amh+eng')
-        info = extract_id_details(raw_text)
-        
-        # ተጠቃሚው እንዲያርም ሳጥን ውስጥ እናስቀምጠው
-        col_name, col_dob = st.columns(2)
-        with col_name:
-            final_name = st.text_input("የተገኘ ስም (አርም)፦", value=info["name"])
-        with col_dob:
-            final_dob = st.text_input("የተገኘ ቀን (አርም)፦", value=info["dob"])
-            
-        st.session_state['final_name'] = final_name
-        st.session_state['final_dob'] = final_dob
+    if st.button("መረጃውን አውጣና አዘጋጅ"):
+        with st.spinner("በማቀነባበር ላይ..."):
+            # OCR ንባብ
+            gray = cv2.cvtColor(image_cv, cv2.COLOR_BGR2GRAY)
+            raw_text = pytesseract.image_to_string(gray, lang='amh+eng')
+            info = get_structured_data(raw_text)
 
-    if st.button("መታወቂያውን አሁኑኑ አዘጋጅ"):
-        name_to_draw = st.session_state.get('final_name', "")
-        dob_to_draw = st.session_state.get('final_dob', "")
-        
-        with st.spinner("በሂደት ላይ ነው..."):
-            # 1. ፎቶውን መቁረጥ (ROI)
-            photo_crop = image_cv[int(h*0.18):int(h*0.48), int(w*0.30):int(w*0.65)]
+            # 1. ፎቶውን መቁረጥ (ከላይ በግራ በኩል ካለው ቦታ)
+            photo_crop = image_cv[int(h*0.10):int(h*0.35), int(w*0.05):int(w*0.35)]
             
-            # 2. የፋይዳ ቁጥር ሳጥኑን መቁረጥ (ምስሉን)
-            fan_box_crop = image_cv[int(h*0.80):int(h*0.93), int(w*0.20):int(w*0.80)]
-            
+            # 2. የፋይዳ ቁጥር ሳጥኑን መቁረጥ (ከታች መሃል)
+            fan_crop = image_cv[int(h*0.82):int(h*0.95), int(w*0.15):int(w*0.85)]
+
             try:
                 bg_pil = Image.open(BG_PATH).convert("RGB")
                 draw = ImageDraw.Draw(bg_pil)
-                nyala_font = ImageFont.truetype(FONT_PATH, 30) # ቀኑ ረጅም ስለሚሆን ፎንቱን ትንሽ ቀነስኩት
-                
-                # ሀ. ፎቶውን ማሳረፍ
-                photo_pil = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB))
-                photo_pil = photo_pil.resize((260, 310))
-                bg_pil.paste(photo_pil, (65, 180))
-                
-                # ለ. የፋይዳ ቁጥር ሳጥኑን ማሳረፍ
-                fan_pil = Image.fromarray(cv2.cvtColor(fan_box_crop, cv2.COLOR_BGR2RGB))
-                fan_pil = fan_pil.resize((350, 60))
+                # ለአማርኛ እና እንግሊዝኛ ስም የሚሆኑ ፎንቶች
+                font_large = ImageFont.truetype(FONT_PATH, 38)
+                font_small = ImageFont.truetype(FONT_PATH, 28)
+
+                # ሀ. ፎቶውን መለጠፍ
+                photo_pil = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB)).resize((250, 300))
+                bg_pil.paste(photo_pil, (60, 180))
+
+                # ለ. የፋይዳ ቁጥርን መለጠፍ
+                fan_pil = Image.fromarray(cv2.cvtColor(fan_crop, cv2.COLOR_BGR2RGB)).resize((380, 70))
                 bg_pil.paste(fan_pil, (100, 520))
-                
+
                 # ሐ. ጽሁፎችን መጻፍ
-                draw.text((415, 130), name_to_draw, font=nyala_font, fill="black")
-                draw.text((415, 240), dob_to_draw, font=nyala_font, fill="black")
+                # አማርኛ ስም
+                draw.text((415, 110), info["amh_name"], font=font_large, fill="black")
+                # እንግሊዝኛ ስም (ከስሩ)
+                draw.text((415, 160), info["eng_name"], font=font_large, fill="black")
+                # ቀን
+                draw.text((415, 260), info["dates"], font=font_small, fill="black")
+
+                st.image(bg_pil, caption="የተስተካከለ መታወቂያ")
                 
-                st.image(bg_pil, caption="የተዘጋጀው መታወቂያ")
-                
+                # Download
                 buf = io.BytesIO()
                 bg_pil.save(buf, format="PNG")
-                st.download_button("መታወቂያውን አውርድ", buf.getvalue(), f"{name_to_draw}.png")
-                
+                st.download_button("መታወቂያውን አውርድ", buf.getvalue(), "fayda_fixed.png")
+
             except Exception as e:
-                st.error(f"ስህተት ተፈጥሯል፦ {e}")
+                st.error(f"ስህተት፦ {e}")
