@@ -6,15 +6,14 @@ import numpy as np
 import io
 import re
 
-# ፋይሎች መኖራቸውን እርግጠኛ ሁን
+# ፋይሎች በትክክል መኖራቸውን እናረጋግጥ
 FONT_PATH = "Nyala.ttf"
 BG_PATH = "1000123189.jpg"
 
-st.set_page_config(page_title="Fayda Auto-Pro", layout="wide")
+st.set_page_config(page_title="Fayda Auto-Convert", layout="wide")
 
 def clean_name_text(text):
-    # ከስም ውስጥ ቁጥሮችን እና ምልክቶችን ማስወገጃ (Regex)
-    # የአማርኛ ፊደላት፣ የእንግሊዝኛ ፊደላት እና ክፍት ቦታን ብቻ ያስቀራል
+    # ቁጥሮችን እና ምልክቶችን ከስም ውስጥ ማጽጃ
     cleaned = re.sub(r'[^ሀ-ፐአ-ዘ\sA-Za-z]', '', text)
     return cleaned.strip()
 
@@ -29,16 +28,16 @@ def extract_id_details(text):
                 raw_name = lines[i+1]
             details["name"] = clean_name_text(raw_name)
             
-    # ቀን ፍለጋ (ከመስመር '|' በፊት ያለውን ብቻ መውሰድ)
+    # ቀን ፍለጋ (03/10/1994 የሚለውን ቅርጽ ብቻ ይወስዳል)
     dob_match = re.search(r'\d{2}/\d{2}/\d{4}', text)
     if dob_match:
         details["dob"] = dob_match.group()
         
     return details
 
-st.title("🪪 ፋይዳ አውቶ-ማዘጋጃ (የተስተካከለ)")
+st.title("🪪 የፋይዳ መታወቂያ ራስ-ሰር ማቀነባበሪያ")
 
-uploaded_file = st.file_uploader("የቁም መታወቂያ ምስል ይጫኑ...", type=['png', 'jpg', 'jpeg'])
+uploaded_file = st.file_uploader("የቁም መታወቂያ ምስል እዚህ ያስገቡ", type=['png', 'jpg', 'jpeg'])
 
 if uploaded_file is not None:
     file_bytes = uploaded_file.read()
@@ -46,8 +45,8 @@ if uploaded_file is not None:
     h, w = image_cv.shape[:2]
 
     if st.button("መታወቂያውን አዘጋጅ"):
-        with st.spinner("ሲስተሙ እየቆረጠ ነው..."):
-            # 1. OCR ንባብ (ለስም እና ለቀን)
+        with st.spinner("በሂደት ላይ ነው..."):
+            # 1. OCR ንባብ
             gray = cv2.cvtColor(image_cv, cv2.COLOR_BGR2GRAY)
             raw_text = pytesseract.image_to_string(gray, lang='amh+eng')
             info = extract_id_details(raw_text)
@@ -56,7 +55,6 @@ if uploaded_file is not None:
             photo_crop = image_cv[int(h*0.18):int(h*0.48), int(w*0.30):int(w*0.65)]
             
             # 3. የፋይዳ ቁጥር ሳጥኑን መቁረጥ (ልክ እንደ ፎቶው)
-            # ይህ ቦታ እንደ መታወቂያው ጥራት ትንሽ ማስተካከያ ሊፈልግ ይችላል
             fan_box_crop = image_cv[int(h*0.80):int(h*0.93), int(w*0.20):int(w*0.80)]
             
             try:
@@ -70,10 +68,10 @@ if uploaded_file is not None:
                 photo_pil = photo_pil.resize((260, 310))
                 bg_pil.paste(photo_pil, (65, 180))
                 
-                # ለ. የፋይዳ ቁጥር ሳጥኑን (ምስሉን) ማሳረፍ
+                # ለ. የፋይዳ ቁጥር ሳጥኑን ማሳረፍ (ምስል ስለሆነ ንባብ አይፈልግም)
                 fan_pil = Image.fromarray(cv2.cvtColor(fan_box_crop, cv2.COLOR_BGR2RGB))
-                fan_pil = fan_pil.resize((350, 60)) # መጠኑን እንደ ባክግራውንዱ ማስተካከል
-                bg_pil.paste(fan_pil, (100, 520)) # የተቀመጠበት ቦታ (X, Y)
+                fan_pil = fan_pil.resize((350, 60))
+                bg_pil.paste(fan_pil, (100, 520))
                 
                 # ሐ. ጽሁፎችን መጻፍ
                 draw.text((415, 130), info["name"], font=nyala_font, fill="black")
