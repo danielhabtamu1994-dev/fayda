@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fayda ID Generator - GitHub Edition</title>
+    <style>
+        @font-face {
+            font-family: 'Nyala';
+            src: url('Nyala.ttf');
+        }
+        body { font-family: 'Nyala', sans-serif; background: #f4f7f6; display: flex; flex-direction: column; align-items: center; padding: 10px; }
+        .container { background: white; padding: 20px; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h2 { color: #1a73e8; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
+        .btn { background: #1a73e8; color: white; border: none; padding: 15px; width: 100%; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 16px; }
+        canvas { width: 100%; border-radius: 8px; margin-top: 15px; border: 1px solid #ccc; display: none; }
+        .download-btn { background: #28a745; margin-top: 10px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>ፋይዳ መታወቂያ ማዘጋጃ</h2>
+    <p style="font-size: 13px; color: #666;">የደንበኛውን ፎቶ እና መረጃ ያስገቡ</p>
+    
+    <label>የደንበኛው ፎቶ (ከመታወቂያው ላይ የቆረጥከው):</label>
+    <input type="file" id="photoInput" accept="image/*">
+    
+    <input type="text" id="name" placeholder="ሙሉ ስም (Amharic & English)">
+    <input type="text" id="dob" placeholder="የትውልድ ቀን (ለምሳሌ 03/10/1994)">
+    <input type="text" id="expiry" placeholder="የሚያበቃበት ቀን">
+    <input type="text" id="fan" placeholder="የፋይዳ ቁጥር (FAN)">
+    
+    <button class="btn" onclick="generateID()">መታወቂያውን አውቶማቲክ አዘጋጅ</button>
+    
+    <canvas id="idCanvas"></canvas>
+    <button id="downloadBtn" class="btn download-btn" onclick="downloadID()">መታወቂያውን አውርድ (PNG)</button>
+</div>
+
+<script>
+    const canvas = document.getElementById('idCanvas');
+    const ctx = canvas.getContext('2d');
+    const bgImg = new Image();
+    bgImg.src = '1000123189.jpg'; // ባክግራውንድ ምስልህ ስም
+
+    function generateID() {
+        const photoInput = document.getElementById('photoInput');
+        if (!photoInput.files[0]) { alert("እባክህ መጀመሪያ ፎቶውን ምረጥ!"); return; }
+
+        canvas.width = 1011;
+        canvas.height = 638;
+        canvas.style.display = "block";
+
+        // 1. ባክግራውንድ ሳል
+        ctx.drawImage(bgImg, 0, 0, 1011, 638);
+
+        // 2. ፎቶውን ጫንና ሳል
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const userImg = new Image();
+            userImg.onload = function() {
+                // ፎቶውን በግራ በኩል በካሬ ቦታው ላይ ያስቀምጣል
+                ctx.drawImage(userImg, 65, 180, 260, 310);
+                
+                // 3. ጽሁፎችን ጻፍ
+                ctx.fillStyle = "black";
+                ctx.font = "bold 34px Nyala";
+                
+                // ስም
+                ctx.fillText(document.getElementById('name').value, 415, 140);
+                
+                // ሌሎች መረጃዎች
+                ctx.font = "26px Nyala";
+                ctx.fillText(document.getElementById('dob').value, 415, 250);
+                ctx.fillText(document.getElementById('expiry').value, 415, 360);
+                ctx.fillText("Ethiopian / ኢትዮጵያዊ", 415, 470);
+                
+                // FAN (በግራ በኩል ከፎቶ በታች)
+                ctx.font = "bold 24px Nyala";
+                ctx.fillText("FAN: " + document.getElementById('fan').value, 80, 540);
+
+                document.getElementById('downloadBtn').style.display = "block";
+            }
+            userImg.src = e.target.result;
+        }
+        reader.readAsDataURL(photoInput.files[0]);
+    }
+
+    function downloadID() {
+        const link = document.createElement('a');
+        link.download = document.getElementById('name').value + '_Fayda.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    }
+</script>
+
+</body>
+</html>
