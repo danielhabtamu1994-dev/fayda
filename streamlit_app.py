@@ -6,13 +6,13 @@ import numpy as np
 import io
 import pandas as pd
 
-# ፋይሎች መኖራቸውን እናረጋግጥ
+# ፋይሎች
 FONT_PATH = "Nyala.ttf"
 BG_PATH = "1000123189.jpg"
 
-st.set_page_config(page_title="Fayda Table Reader", layout="wide")
+st.set_page_config(page_title="Fayda Smart Scanner", layout="wide")
 
-st.title("🪪 ፋይዳ መታወቂያ አንባቢ (በሰንጠረዥ)")
+st.title("🪪 ፋይዳ ስማርት አንባቢ (መታወቂያውን ብቻ ለይቶ አውጪ)")
 
 uploaded_file = st.file_uploader("የቁም መታወቂያ ምስል ይጫኑ...", type=['jpg', 'jpeg', 'png'])
 
@@ -21,72 +21,76 @@ if uploaded_file:
     image_cv = cv2.imdecode(np.frombuffer(file_bytes, np.uint8), cv2.IMREAD_COLOR)
     h, w = image_cv.shape[:2]
 
-    # 1. ባክግራውንድን ቆርጦ መታወቂያውን ብቻ ማስቀረት
-    # ከመታወቂያው ዳርና ዳር 5% በመቁረጥ ነጩን ባክግራውንድ እናስወግዳለን
-    cropped_id = image_cv[int(h*0.05):int(h*0.95), int(w*0.05):int(w*0.95)]
+    # --- 1. በቀይ ያከበብክበትን ቦታ ብቻ መቁረጥ ---
+    # በግራና በቀኝ 15%፣ ከላይ 18%፣ ከታች 15% ቆርጠን መሃሉን ብቻ እናስቀራለን
+    top = int(h * 0.18)
+    bottom = int(h * 0.85)
+    left = int(w * 0.10)
+    right = int(w * 0.90)
+    
+    id_only = image_cv[top:bottom, left:right]
+    
+    # ለተጠቃሚው የታረመውን ምስል ማሳያ
+    st.subheader("🔍 OCR የሚያነበው ይሄንን ክፍል ብቻ ነው፦")
+    st.image(id_only, channels="BGR", width=300)
 
     if st.button("መረጃውን በሰንጠረዥ አውጣ"):
         with st.spinner("ጽሁፉ እየተተነተነ ነው..."):
-            gray = cv2.cvtColor(cropped_id, cv2.COLOR_BGR2GRAY)
-            # OCR ንባብ
+            # ምስሉን ለንባብ እንዲያመች ማስተካከል
+            gray = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
+            # ንባብ
             full_text = pytesseract.image_to_string(gray, lang='amh+eng')
             
-            # ጽሁፉን በመስመር መከፋፈል እና በቁጥር መስጠት
-            lines = [line.strip() for line in full_text.split('\n') if line.strip()]
-            numbered_data = []
-            for idx, line in enumerate(lines, 1):
-                numbered_data.append({"ቁጥር": idx, "የተገኘ ጽሁፍ": line})
+            # ውጤቱን በሰንጠረዥ ማደራጀት
+            lines = [line.strip() for line in full_text.split('\n') if len(line.strip()) > 2]
+            numbered_data = [{"ቁጥር": idx, "የተገኘ ጽሁፍ": line} for idx, line in enumerate(lines, 1)]
             
-            # ውጤቱን በሰንጠረዥ ማሳየት
-            st.subheader("📝 የተገኘው መረጃ ዝርዝር")
+            st.subheader("📝 የንባብ ውጤት በሰንጠረዥ")
             df = pd.DataFrame(numbered_data)
-            st.table(df) # ውጤቱ በሰንጠረዥ እንዲሆን
+            st.table(df)
             
             st.markdown("---")
-            st.subheader("✏️ መረጃውን እዚህ ይሙሉ")
+            st.info("ከላይኛው ሰንጠረዥ ያዩትን መረጃ ኮፒ አድርገው እዚህ ይሙሉ")
             
-            # ተጠቃሚው ከሰንጠረዡ ያየውን እዚህ ይሞላል
             col1, col2 = st.columns(2)
             with col1:
-                st.text_input("ሙሉ ስም (ከላይ በቁጥር 2 እና 3 ያለውን ኮፒ አድርገህ እዚህ ለጥፍ)፦", key="user_name")
+                st.text_input("ሙሉ ስም (አማርኛና እንግሊዝኛ)፦", key="final_name")
             with col2:
-                st.text_input("የትውልድ ቀን (ከላይ ያለውን ቁጥር አይተህ እዚህ ሙላ)፦", key="user_dob")
+                st.text_input("የትውልድ ቀን (DOB)፦", key="final_dob")
 
-    # 2. መታወቂያውን ማዘጋጀት
-    if "user_name" in st.session_state and st.button("መታወቂያውን አዘጋጅና አሳይ"):
-        name = st.session_state.user_name
-        dob = st.session_state.user_dob
+    # --- 2. መታወቂያ ማዘጋጃ ---
+    if "final_name" in st.session_state and st.button("አግድም መታወቂያውን አዘጋጅ"):
+        name = st.session_state.final_name
+        dob = st.session_state.final_dob
         
         if name:
             with st.spinner("ምስሉ እየተዘጋጀ ነው..."):
-                # ፎቶ እና FAN ሳጥን መቁረጥ (ከመታወቂያው ላይ)
-                photo_crop = cropped_id[int(h*0.08):int(h*0.40), int(w*0.02):int(w*0.35)]
-                fan_crop = cropped_id[int(h*0.80):int(h*0.93), int(w*0.12):int(w*0.85)]
+                # ፎቶ እና FAN መቁረጥ (ከታረመው ምስል ላይ)
+                h_id, w_id = id_only.shape[:2]
+                photo = id_only[int(h_id*0.05):int(h_id*0.35), int(w_id*0.15):int(w_id*0.85)]
+                fan_box = id_only[int(h_id*0.80):int(h_id*0.98), int(w_id*0.05):int(w_id*0.95)]
 
                 try:
-                    bg_pil = Image.open(BG_PATH).convert("RGB")
-                    draw = ImageDraw.Draw(bg_pil)
+                    bg = Image.open(BG_PATH).convert("RGB")
+                    draw = ImageDraw.Draw(bg)
                     font = ImageFont.truetype(FONT_PATH, 35)
 
-                    # ፎቶ መለጠፍ
-                    photo_pil = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB)).resize((260, 310))
-                    bg_pil.paste(photo_pil, (65, 180))
+                    # ፎቶ (መጠን 260x310)
+                    photo_pil = Image.fromarray(cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)).resize((260, 310))
+                    bg.paste(photo_pil, (65, 180))
 
-                    # የፋይዳ ቁጥር መለጠፍ
-                    fan_pil = Image.fromarray(cv2.cvtColor(fan_crop, cv2.COLOR_BGR2RGB)).resize((380, 70))
-                    bg_pil.paste(fan_pil, (100, 520))
+                    # FAN (መጠን 380x70)
+                    fan_pil = Image.fromarray(cv2.cvtColor(fan_box, cv2.COLOR_BGR2RGB)).resize((380, 70))
+                    bg.paste(fan_pil, (100, 520))
 
-                    # ጽሁፎችን መጻፍ
+                    # ጽሁፍ
                     draw.text((415, 130), name, font=font, fill="black")
                     draw.text((415, 250), dob, font=font, fill="black")
 
-                    st.image(bg_pil, caption="የተዘጋጀው መታወቂያ")
+                    st.image(bg, caption="የተዘጋጀው መታወቂያ")
                     
                     buf = io.BytesIO()
-                    bg_pil.save(buf, format="PNG")
-                    st.download_button("መታወቂያውን አውርድ", buf.getvalue(), f"{name}.png")
-
+                    bg.save(buf, format="PNG")
+                    st.download_button("PNG አውርድ", buf.getvalue(), f"fayda_{name}.png")
                 except Exception as e:
                     st.error(f"ስህተት፦ {e}")
-        else:
-            st.warning("እባክህ መጀመሪያ ስምና ቀን ሙላ!")
