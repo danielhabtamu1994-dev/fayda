@@ -10,9 +10,9 @@ import pandas as pd
 FONT_PATH = "Nyala.ttf"
 BG_PATH = "1000123189.jpg"
 
-st.set_page_config(page_title="Fayda Precision Mapper", layout="wide")
+st.set_page_config(page_title="Fayda Numeric ID", layout="wide")
 
-st.title("🪪 ፋይዳ መታወቂያ - ትክክለኛ መረጃ ማሳረፊያ")
+st.title("🪪 ፋይዳ ስማርት አንባቢ (በቁጥር መለያ)")
 
 uploaded_file = st.file_uploader("የቁም መታወቂያውን እዚህ ያስገቡ", type=['jpg', 'jpeg', 'png'])
 
@@ -21,68 +21,81 @@ if uploaded_file:
     image_cv = cv2.imdecode(np.frombuffer(file_bytes, np.uint8), cv2.IMREAD_COLOR)
     h, w = image_cv.shape[:2]
 
-    # 1. OCR ንባብ በሰንጠረዥ
-    if st.button("መረጃውን አንብብና በሰንጠረዥ አሳይ"):
-        # መታወቂያውን ብቻ መቁረጥ (ቀደም ብለን በለካነው ልክ)
-        id_only = image_cv[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
-        gray = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-        full_text = pytesseract.image_to_string(gray, lang='amh+eng')
-        
-        lines = [line.strip() for line in full_text.split('\n') if len(line.strip()) > 1]
-        numbered_data = [{"ቁጥር": idx, "የተገኘ ጽሁፍ": line} for idx, line in enumerate(lines, 1)]
-        
-        st.subheader("📝 የንባብ ውጤት")
-        st.table(pd.DataFrame(numbered_data))
-        
-        st.markdown("---")
-        # መረጃ መሙያ ሳጥኖች
-        col1, col2 = st.columns(2)
-        with col1:
-            st.text_input("ሙሉ ስም (አማርኛ እና እንግሊዝኛ)፦", key="final_name", placeholder="ለምሳሌ፦ ዳንኤል ሀብታሙ Daniel Habtamu")
-        with col2:
-            st.text_input("የትውልድ ቀን (DOB)፦", key="final_dob", placeholder="ለምሳሌ፦ 03/10/1994 | 2002/Jun/10")
+    # መታወቂያውን ብቻ ለይቶ መቁረጥ
+    id_only = image_cv[int(h*0.18):int(h*0.85), int(w*0.10):int(w*0.90)]
 
-    # 2. በለካነው ልኬት መሰረት ባክግራውንድ ላይ ማሳረፍ
-    if "final_name" in st.session_state and st.button("መታወቂያውን በትክክለኛው ልኬት አዘጋጅ"):
-        name = st.session_state.final_name
-        dob = st.session_state.final_dob
-        
-        with st.spinner("በሂደት ላይ ነው..."):
+    if st.button("መረጃውን በሰንጠረዥ አውጣ"):
+        with st.spinner("ጽሁፉ እየተተነተነ ነው..."):
+            gray = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
+            full_text = pytesseract.image_to_string(gray, lang='amh+eng')
+            
+            # ጽሁፉን በመስመር መከፋፈል
+            lines = [line.strip() for line in full_text.split('\n') if len(line.strip()) > 1]
+            # ሰንጠረዡን ማዘጋጀት
+            numbered_data = [{"ቁጥር": idx, "የተገኘ ጽሁፍ": line} for idx, line in enumerate(lines, 1)]
+            
+            st.session_state['ocr_lines'] = lines
+            st.subheader("📝 የንባብ ውጤት ዝርዝር")
+            st.table(pd.DataFrame(numbered_data))
+
+    st.markdown("---")
+    st.subheader("🔢 የቁጥሮቹን መለያ እዚህ ያስገቡ")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        amh_idx = st.number_input("አማርኛ ስም ቁጥር (ለምሳሌ 5):", min_value=1, value=5)
+        eng_idx = st.number_input("እንግሊዝኛ ስም ቁጥር (ለምሳሌ 6):", min_value=1, value=6)
+    with col2:
+        dob_idx = st.number_input("የትውልድ ቀን ቁጥር (ለምሳሌ 8):", min_value=1, value=8)
+        sex_idx = st.number_input("ፆታ ቁጥር (ለምሳሌ 10):", min_value=1, value=10)
+    with col3:
+        exp_idx = st.number_input("የሚያበቃበት ቀን ቁጥር (ለምሳሌ 12):", min_value=1, value=12)
+
+    if st.button("አግድም መታወቂያውን አዘጋጅ"):
+        if 'ocr_lines' in st.session_state:
+            lines = st.session_state['ocr_lines']
             try:
-                # ባክግራውንዱን መክፈት
+                # መረጃዎቹን ከሰንጠረዡ ላይ በቁጥር መውሰድ (Index ስለሚጀምር -1 እናደርጋለን)
+                amh_name = lines[amh_idx-1] if amh_idx <= len(lines) else ""
+                eng_name = lines[eng_idx-1] if eng_idx <= len(lines) else ""
+                dob = lines[dob_idx-1] if dob_idx <= len(lines) else ""
+                sex = lines[sex_idx-1] if sex_idx <= len(lines) else ""
+                expiry = lines[exp_idx-1] if exp_idx <= len(lines) else ""
+
+                # ባክግራውንዱን ማዘጋጀት
                 bg = Image.open(BG_PATH).convert("RGB")
                 draw = ImageDraw.Draw(bg)
-                
-                # በለካነው የጽሁፍ ቁመት መሰረት ፎንቶችን ማስተካከል
-                font_name = ImageFont.truetype(FONT_PATH, 35) # ለስም
-                font_data = ImageFont.truetype(FONT_PATH, 28) # ለቀን
-                
-                # --- በለካነው የፒክሰል ልኬት (Coordinates) መሰረት ማሳረፍ ---
-                # ማሳሰቢያ፦ በአዲሱ ባክግራውንድ ስፋት መሰረት X እና Y ተስተካክለዋል
-                
-                # 1. ስም (አማርኛና እንግሊዝኛ) - X=415, Y=130 አካባቢ
-                draw.text((415, 130), name, font=font_name, fill="black")
-                
-                # 2. የልደት ቀን - X=415, Y=250 አካባቢ
-                draw.text((415, 250), dob, font=font_data, fill="black")
-                
-                # 3. ፎቶ መቁረጥ እና ማሳረፍ (Precision Crop)
-                # ኦሪጅናል ምስሉ ላይ በለካነው ልክ (X=140, Y=320 አካባቢ)
-                photo_crop = image_cv[int(h*0.18):int(h*0.48), int(w*0.15):int(w*0.50)]
-                photo_pil = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB)).resize((260, 310))
-                bg.paste(photo_pil, (65, 180)) # አዲሱ ባክግራውንድ ላይ ፎቶው የሚቀመጥበት ቦታ
-                
-                # 4. የፋይዳ ቁጥር (FAN) ሳጥን - X=480, Y=750 አካባቢ የነበረውን መቁረጥ
-                fan_crop = image_cv[int(h*0.78):int(h*0.93), int(w*0.25):int(w*0.80)]
-                fan_pil = Image.fromarray(cv2.cvtColor(fan_crop, cv2.COLOR_BGR2RGB)).resize((380, 80))
-                bg.paste(fan_pil, (100, 520)) # አዲሱ ባክግራውንድ ላይ FAN የሚቀመጥበት ቦታ
+                font_name = ImageFont.truetype(FONT_PATH, 35)
+                font_data = ImageFont.truetype(FONT_PATH, 25)
 
-                st.image(bg, caption="በተፈለገው ልኬት የተዘጋጀ መታወቂያ", use_column_width=True)
+                # --- መረጃዎችን ማሳረፍ ---
+                # ስም (አማርኛ እና እንግሊዝኛ)
+                full_name = f"{amh_name} {eng_name}"
+                draw.text((415, 110), full_name, font=font_name, fill="black")
                 
-                # ማውረጃ
+                # ሌሎች መረጃዎች
+                draw.text((415, 210), f"DOB: {dob}", font=font_data, fill="black")
+                draw.text((415, 270), f"Sex: {sex}", font=font_data, fill="black")
+                draw.text((415, 330), f"Expiry: {expiry}", font=font_data, fill="black")
+
+                # ፎቶ እና FAN መቁረጥ
+                h_id, w_id = id_only.shape[:2]
+                photo = id_only[int(h_id*0.05):int(h_id*0.35), int(w_id*0.15):int(w_id*0.85)]
+                fan_box = id_only[int(h_id*0.80):int(h_id*0.98), int(w_id*0.05):int(w_id*0.95)]
+
+                photo_pil = Image.fromarray(cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)).resize((260, 310))
+                bg.paste(photo_pil, (65, 180))
+
+                fan_pil = Image.fromarray(cv2.cvtColor(fan_box, cv2.COLOR_BGR2RGB)).resize((380, 70))
+                bg.paste(fan_pil, (100, 520))
+
+                st.image(bg, caption="በቁጥር መለያ የተዘጋጀ መታወቂያ")
+                
                 buf = io.BytesIO()
                 bg.save(buf, format="PNG")
-                st.download_button("የተዘጋጀውን PNG አውርድ", buf.getvalue(), f"fayda_final.png")
-                
+                st.download_button("PNG አውርድ", buf.getvalue(), f"fayda_{eng_name}.png")
+
             except Exception as e:
-                st.error(f"ስህተት ተከስቷል፦ {e}")
+                st.error(f"ስህተት ተከስቷል፦ {e}. ምናልባት የመረጡት ቁጥር ከሰንጠረዡ ውጭ ሊሆን ይችላል።")
+        else:
+            st.warning("እባክዎ መጀመሪያ 'መረጃውን በሰንጠረዥ አውጣ' የሚለውን ይጫኑ!")
