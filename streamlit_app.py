@@ -358,15 +358,21 @@ if uploaded_file:
                 draw_smart_text(draw, (p['sex_x'], p['sex_y']), safe_line(sex_n), sz['sex'], sz['sex'], tc)
                 draw_smart_text(draw, (p['exp_x'], p['exp_y']), safe_line(exp_n), sz['exp'], sz['exp'], tc)
 
-                # Photo
+                # Photo — calibrated ratios: y=0.064→0.430, x=0.240→0.725
                 h_id, w_id = id_only.shape[:2]
-                photo = id_only[int(h_id*0.02):int(h_id*0.40), int(w_id*0.02):int(w_id*0.55)]
-                bg.paste(Image.fromarray(cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)).resize((190, 240)), (105, 165))
+                photo = id_only[int(h_id*0.064):int(h_id*0.430),
+                                int(w_id*0.240):int(w_id*0.725)]
+                photo_pil = Image.fromarray(cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)).resize((190, 240))
+                bg.paste(photo_pil, (105, 165))
 
-                # FAN
-                fan = id_only[int(h_id*0.82):int(h_id*0.99), int(w_id*0.05):int(w_id*0.95)]
+                # FAN — ትክክለኛ ratio (sample ID ምስል ላይ calibrated)
+                # id_only ውስጥ: y: 0.728→0.840,  x: 0.210→0.725
+                fan = id_only[int(h_id*0.728):int(h_id*0.840),
+                              int(w_id*0.210):int(w_id*0.725)]
                 if fan.size > 0:
-                    bg.paste(Image.fromarray(cv2.cvtColor(fan, cv2.COLOR_BGR2RGB)).resize((480, 65)), (575, 648))
+                    fan_pil = Image.fromarray(cv2.cvtColor(fan, cv2.COLOR_BGR2RGB))
+                    fan_pil = fan_pil.resize((480, 70))
+                    bg.paste(fan_pil, (575, 645))
 
                 st.image(bg, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ", use_container_width=True)
 
