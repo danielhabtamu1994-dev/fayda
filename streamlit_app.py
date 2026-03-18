@@ -8,7 +8,7 @@ import pandas as pd
 import re
 
 FONT_PATH = "sabaean.ttf"
-BG_PATH = "1000123189.jpg"
+BG_PATH = "IMG_20260318_085131_234.jpg"
 
 st.set_page_config(page_title="Fayda ID Converter", layout="wide", page_icon="🪪")
 
