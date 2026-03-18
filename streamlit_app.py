@@ -228,6 +228,94 @@ def find_fan_box(id_only):
     return id_only[y1:y2 + 1, x1:x2 + 1]
 
 # ══════════════════════════════════════════════════════════════════
+# Powerful OCR — preprocessing + post-processing
+# ══════════════════════════════════════════════════════════════════
+def _preprocess_for_ocr(id_only):
+    """
+    OCR ተስማሚ ምስል ያዘጋጃል:
+    1. 2x upscale — tesseract 300dpi+ ይወዳል
+    2. Bilateral filter — texture ያስወግዳል edges ይጠብቃል
+    3. Otsu threshold — global binarization
+    """
+    ih, iw = id_only.shape[:2]
+    gray   = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
+    big    = cv2.resize(gray, (iw * 2, ih * 2), interpolation=cv2.INTER_CUBIC)
+    filt   = cv2.bilateralFilter(big, 11, 80, 80)
+    _, bin_img = cv2.threshold(filt, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return bin_img
+
+
+def _clean_ocr_output(raw_text):
+    """
+    OCR ውጤቱን ያጸዳና ጠቃሚ lines ብቻ ይመርጣል:
+    1. Noise lines (background pattern) ያስወጣቸዋል
+    2. Jun/ህበባ ና ሌሎች month misreads ያስተካክላቸዋል
+    3. FAN number prefix noise ያስወጣ ሙሉ ቁጥር ያቆያል
+    """
+    import re
+
+    MONTH_FIXES = {
+        'ህበባ': 'Jun', 'hhuu': 'Jun', 'hhn': 'Jun', 'hhba': 'Jun',
+        'JUH': 'Jun', 'JUW': 'Jun', 'JUN': 'Jun', 'Yun': 'Jun',
+        'JAH': 'Jan', 'JAN': 'Jan', 'Jah': 'Jan',
+        'FEB': 'Feb', 'FE8': 'Feb',
+        'MAR': 'Mar', 'MAK': 'Mar',
+        'APR': 'Apr',
+        'MAY': 'May',
+        'JUL': 'Jul', 'JUI': 'Jul',
+        'AUG': 'Aug', 'AU6': 'Aug',
+        'SEP': 'Sep',
+        'OCT': 'Oct', '0CT': 'Oct',
+        'NOV': 'Nov',
+        'DEC': 'Dec',
+    }
+
+    lines_out = []
+    for raw in raw_text.split('\n'):
+        line = raw.strip()
+        if len(line) < 2:
+            continue
+
+        # ── Noise filter: discard lines with too many garbage chars ──
+        useful = sum(1 for c in line
+                     if c.isalpha() or c.isdigit() or c in ' /|-:.')
+        if len(line) > 4 and useful / len(line) < 0.45:
+            continue
+
+        # ── Fix month names ──
+        for wrong, right in MONTH_FIXES.items():
+            line = re.sub(re.escape(wrong), right, line, flags=re.IGNORECASE)
+
+        # ── Fix FAN/barcode number: strip prefix noise, keep full digits ──
+        fan_match = re.search(r'\d{10,}', line)
+        if fan_match:
+            digits = fan_match.group()
+            prefix = line[:fan_match.start()].strip()
+            # Keep prefix only if it looks like a real short word
+            if prefix and prefix.isalpha() and len(prefix) <= 5:
+                line = f"{prefix} {digits}"
+            else:
+                line = digits
+
+        if len(line.replace(' ', '')) >= 2:
+            lines_out.append(line)
+
+    return lines_out
+
+
+def run_powerful_ocr(id_only):
+    """
+    ኃይለኛ OCR ሂደት:
+    • Bilateral filter + Otsu binarization
+    • amh+eng PSM 6
+    • Post-processing: noise removal + month fix + FAN fix
+    """
+    processed = _preprocess_for_ocr(id_only)
+    config    = '--oem 3 --psm 6 -c preserve_interword_spaces=1'
+    raw_text  = pytesseract.image_to_string(processed, lang='amh+eng', config=config)
+    return _clean_ocr_output(raw_text)
+
+# ══════════════════════════════════════════════════════════════════
 # Defaults
 # ══════════════════════════════════════════════════════════════════
 DEFAULT_SETTINGS = {
@@ -341,9 +429,7 @@ if uploaded_file:
     with st.expander("📋 ደረጃ 1: OCR — ጽሁፍ ማውጣት", expanded=True):
         if st.button("🔍 መረጃውን አውጣ", type="primary"):
             with st.spinner("OCR እየሰራ ነው..."):
-                gray      = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-                full_text = pytesseract.image_to_string(gray, lang='amh+eng')
-                lines     = [l.strip() for l in full_text.split('\n') if len(l.strip()) > 1]
+                lines  = run_powerful_ocr(id_only)
                 st.session_state.ocr_lines    = lines
                 st.session_state.auto_detected = auto_detect_fields(lines)
 
