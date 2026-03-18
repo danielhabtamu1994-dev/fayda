@@ -9,8 +9,8 @@ import json
 import re
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
-FONT_ENG    = "Inter_18pt-Bold.ttf"
-BG_PATH     = "IMG_20260318_085131_234.jpg"
+FONT_ENG    = "Inter_18pt-Medium.ttf"
+BG_PATH     = "1000123189.jpg"
 FIREBASE_URL = "https://fayda-b365f-default-rtdb.firebaseio.com/settings.json"
 
 st.set_page_config(page_title="Fayda ID Converter", layout="wide", page_icon="🪪")
