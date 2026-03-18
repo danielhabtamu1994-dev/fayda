@@ -8,8 +8,8 @@ import pandas as pd
 import json
 import base64
 
-FONT_PATH = "Nyala.ttf"
-BG_PATH = "1000123189.jpg"
+FONT_PATH = "sabaean.ttf"
+BG_PATH = "IMG_20260318_085131_234.jpg"
 
 st.set_page_config(page_title="Fayda ID Converter", layout="wide", page_icon="🪪")
 
