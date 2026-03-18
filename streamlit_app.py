@@ -9,8 +9,8 @@ import json
 import re
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
-FONT_ENG    = "Inter_18pt-Bold.ttf"
-BG_PATH     = "IMG_20260318_085131_234.jpg"
+FONT_ENG    = "Inter_18pt-Medium.ttf"
+BG_PATH     = "1000123189.jpg"
 FIREBASE_URL = "https://fayda-b365f-default-rtdb.firebaseio.com/settings.json"
 
 st.set_page_config(page_title="Fayda ID Converter", layout="wide", page_icon="🪪")
@@ -228,88 +228,57 @@ def find_fan_box(id_only):
     return id_only[y1:y2 + 1, x1:x2 + 1]
 
 # ══════════════════════════════════════════════════════════════════
-# Claude Vision OCR — Tesseract ምትክ
+# Gemini Vision OCR
 # ══════════════════════════════════════════════════════════════════
 def run_claude_ocr(id_only):
     """
-    ምስሉን Claude Vision API ላይ ልኮ ሁሉም ጽሁፍ ያወጣል።
-    Tesseract ከሚሰጠው የተሻለ accuracy — አማርኛ፣ እንግሊዝኛ፣ ቁጥሮች ሁሉ ትክክል።
-
-    Returns: list of text lines (same format as before)
+    ምስሉን Google Gemini Vision API ላይ ልኮ ሁሉም ጽሁፍ ያወጣል።
+    ነጻ — ምንም ብር አያስፈልግም።
+    Returns: list of text lines
     """
-    import base64
+    import base64, os
 
-    # id_only (numpy BGR) → JPEG bytes → base64
+    # API key — hardcoded
+    api_key = "AIzaSyChBiF1OGl-L7IaOOOXNHUE7Efmhae9mKw"
+
+    # id_only → JPEG base64
     success, buf = cv2.imencode('.jpg', id_only, [cv2.IMWRITE_JPEG_QUALITY, 92])
     if not success:
         return []
     img_b64 = base64.standard_b64encode(buf.tobytes()).decode('utf-8')
 
     prompt = """ይህ የኢትዮጵያ ፋይዳ ዲጂታል መታወቂያ ካርድ ምስል ነው።
-በምስሉ ውስጥ ያሉትን ሁሉም ጽሁፎች ያለምንም ለውጥ ያንብቡ።
+በምስሉ ውስጥ ያሉትን ሁሉም ጽሁፎች ያለምንም ለውጥ ያንብብ።
 
-በትክክል እንዲህ format አድርገህ JSON ብቻ መልስ (ሌላ ጽሁፍ አትጨምር):
-{
-  "lines": [
-    "line1 text here",
-    "line2 text here",
-    ...
-  ]
-}
+JSON ብቻ መልስ (ሌላ ምንም ጽሁፍ አትጨምር):
+{"lines": ["line1", "line2", ...]}
 
-አስፈላጊ ህጎች:
-- እያንዳንዱ የጽሁፍ መስመር የራሱ item ይሁን
-- ሁሉም ቁጥሮች ሙሉ በሙሉ ይነበቡ (ምንም digit አይጥፋ)
-- አማርኛ ፊደሎች ትክክለኛ Unicode ይሁኑ
-- Labels (ሙሉ ስም, Date of Birth, Sex, Date of Expiry) ጨምሮ ሁሉም ይነበቡ
-- background noise/watermark አትጨምር"""
+ህጎች:
+- እያንዳንዱ መስመር የራሱ item ይሁን
+- ሁሉም ቁጥሮች ሙሉ ይነበቡ (digit አይጥፋ)
+- አማርኛ ፊደሎች ትክክለኛ Unicode
+- ሙሉ ስም / Full Name, Date of Birth, Sex, Date of Expiry labels ጨምሮ
+- background watermark አትጨምር"""
 
     try:
-        # API key — Streamlit secrets ወይም environment variable
-        import os
-        api_key = ""
-        try:
-            api_key = st.secrets["ANTHROPIC_API_KEY"]
-        except Exception:
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            return ["[Error: ANTHROPIC_API_KEY secret አልተቀመጠም። Streamlit Cloud → Settings → Secrets ውስጥ ያስገቡ]"]
-
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01"
-            },
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 1000,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": img_b64
-                            }
-                        },
-                        {"type": "text", "text": prompt}
-                    ]
-                }]
-            },
-            timeout=30
-        )
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}},
+                    {"text": prompt}
+                ]
+            }],
+            "generationConfig": {"temperature": 0, "maxOutputTokens": 1024}
+        }
+        resp = requests.post(url, json=payload, timeout=30)
 
         if resp.status_code != 200:
-            return [f"[API Error {resp.status_code}]"]
+            return [f"[Gemini Error {resp.status_code}: {resp.text[:200]}]"]
 
-        content = resp.json()["content"][0]["text"].strip()
+        content = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-        # Parse JSON response
-        # Strip markdown code fences if present
+        # Strip markdown fences if present
         content = re.sub(r'^```[a-z]*\n?', '', content)
         content = re.sub(r'\n?```$', '', content)
 
@@ -318,11 +287,12 @@ def run_claude_ocr(id_only):
         return lines
 
     except json.JSONDecodeError:
-        # Fallback: extract lines from raw text
+        # Fallback: return raw lines
         lines = [l.strip() for l in content.split('\n') if len(l.strip()) > 1]
         return lines
     except Exception as e:
         return [f"[OCR Error: {e}]"]
+
 
 
 # ══════════════════════════════════════════════════════════════════
