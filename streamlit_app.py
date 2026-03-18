@@ -1,4 +1,5 @@
 import streamlit as st
+import pytesseract
 from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
@@ -6,7 +7,6 @@ import io
 import pandas as pd
 import requests
 import json
-import re
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Medium.ttf"
@@ -69,231 +69,6 @@ def draw_smart_text(draw, pos, text, size_amh=32, size_eng=28, fill=(45, 25, 5))
         draw.text((x, y), seg, font=font, fill=fill)
         bbox = font.getbbox(seg)
         x += bbox[2] - bbox[0]
-
-# ══════════════════════════════════════════════════════════════════
-# Smart FAN / Barcode white-box detection
-# ══════════════════════════════════════════════════════════════════
-def _expand_white_box(id_only, bx, by, bx2, by2):
-    """
-    barcode bounding box ካገኘ በኋላ 4 አቅጣጫ ያስፋፋል።
-    """
-    ih, iw = id_only.shape[:2]
-    img_f    = id_only.astype(np.int16)
-    chroma   = img_f.max(axis=2) - img_f.min(axis=2)
-    bright   = img_f.max(axis=2)
-    is_white = (chroma < 30) & (bright > 180)
-
-    THRESH = 0.38
-
-    y1 = by
-    for y in range(by - 1, -1, -1):
-        if is_white[y, max(0,bx):min(iw,bx2)].mean() >= THRESH: y1 = y
-        else: break
-
-    y2 = by2
-    for y in range(by2 + 1, ih):
-        if is_white[y, max(0,bx):min(iw,bx2)].mean() >= THRESH: y2 = y
-        else: break
-
-    x1 = bx
-    for x in range(bx - 1, -1, -1):
-        if is_white[y1:y2+1, x].mean() >= THRESH: x1 = x
-        else: break
-
-    x2 = bx2
-    for x in range(bx2 + 1, iw):
-        if is_white[y1:y2+1, x].mean() >= THRESH: x2 = x
-        else: break
-
-    return x1, y1, x2, y2
-
-
-def _find_barcode_by_stripes(id_only):
-    """
-    Fallback: pyzbar ካልሰራ strict white fraction range ተጠቅሞ FAN ሳጥን ያፈልጋል።
-
-    ምልከታ:
-      FAN box rows  → strict white 0.25–0.85  (barcode bars ስላሉ ሙሉ ነጭ አይደለም)
-      Phone UI rows → strict white > 0.85      (ሙሉ ነጭ)
-      Card BG rows  → strict white < 0.20      (colored pattern)
-
-    ስለዚህ 0.25–0.85 range ያሉ rows = FAN box
-    """
-    ih, iw = id_only.shape[:2]
-
-    img_f  = id_only.astype(np.int16)
-    chroma = img_f.max(axis=2) - img_f.min(axis=2)
-    bright = img_f.max(axis=2)
-    is_strict_white = (chroma < 15) & (bright > 210)
-    row_frac = is_strict_white.mean(axis=1)
-
-    # Search bottom 50% only
-    search_top = int(ih * 0.50)
-
-    # FAN box: moderate strict white (not phone UI, not card BG)
-    FAN_MIN = 0.25
-    FAN_MAX = 0.85
-
-    white_rows = [y for y in range(search_top, ih)
-                  if FAN_MIN <= row_frac[y] <= FAN_MAX]
-    if len(white_rows) < 5:
-        return None
-
-    # Find largest continuous band
-    wbr  = np.array(white_rows)
-    gaps = np.where(np.diff(wbr) > 12)[0]
-    if len(gaps) == 0:
-        bands = [(wbr[0], wbr[-1])]
-    else:
-        starts = [0] + list(gaps + 1)
-        ends   = list(gaps) + [len(wbr) - 1]
-        bands  = [(wbr[s], wbr[e]) for s, e in zip(starts, ends)]
-
-    y1, y2 = max(bands, key=lambda b: b[1] - b[0])
-
-    # Column range
-    col_frac   = is_strict_white[y1:y2 + 1, :].mean(axis=0)
-    white_cols = np.where(col_frac >= 0.20)[0]
-    if len(white_cols) < 10:
-        return None
-
-    return int(white_cols[0]), y1, int(white_cols[-1]), y2
-
-
-def find_fan_box(id_only):
-    """
-    FAN ነጭ ሳጥን ፈልጎ ይቆርጣል — ካርድ ቁጥር/ቀጥሮ/FAN labels ጨምሮ ሙሉ ሳጥን።
-
-    ዘዴ 1 (pyzbar):  ባርኮዱን directly ያነባል — fastest & most accurate
-    ዘዴ 2 (stripes): vertical edge pattern ይፈልጋል — blurry/angled images ላይ
-    ሁለቱም ካልሰሩ:    None ይመልሳል
-    """
-    ih, iw = id_only.shape[:2]
-
-    # ── Method 1: pyzbar ──────────────────────────────────────────
-    coords = None
-    try:
-        from pyzbar import pyzbar
-        gray = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-
-        barcodes = pyzbar.decode(gray)
-
-        # retry with enhanced contrast
-        if not barcodes:
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-            barcodes = pyzbar.decode(clahe.apply(gray))
-
-        # retry with upscaled image
-        if not barcodes:
-            big = cv2.resize(gray, (iw*2, ih*2), interpolation=cv2.INTER_CUBIC)
-            found = pyzbar.decode(big)
-            if found:
-                bc  = found[0]
-                pts = bc.polygon
-                bx  = min(p.x for p in pts) // 2
-                by  = min(p.y for p in pts) // 2
-                bx2 = max(p.x for p in pts) // 2
-                by2 = max(p.y for p in pts) // 2
-                coords = (bx, by, bx2, by2)
-
-        if not coords and barcodes:
-            bc  = barcodes[0]
-            pts = bc.polygon
-            coords = (
-                min(p.x for p in pts), min(p.y for p in pts),
-                max(p.x for p in pts), max(p.y for p in pts),
-            )
-
-    except ImportError:
-        pass
-
-    # ── Method 2: vertical stripe fallback ───────────────────────
-    if coords is None:
-        result = _find_barcode_by_stripes(id_only)
-        if result:
-            coords = result
-
-    if coords is None:
-        return None
-
-    bx, by, bx2, by2 = coords
-
-    # ── Expand to full white box ──────────────────────────────────
-    x1, y1, x2, y2 = _expand_white_box(id_only, bx, by, bx2, by2)
-
-    fw, fh = x2 - x1, y2 - y1
-    if fw < 30 or fh < 10:
-        return None
-
-    return id_only[y1:y2 + 1, x1:x2 + 1]
-
-# ══════════════════════════════════════════════════════════════════
-# Gemini Vision OCR
-# ══════════════════════════════════════════════════════════════════
-def run_claude_ocr(id_only):
-    """
-    ምስሉን Google Gemini Vision API ላይ ልኮ ሁሉም ጽሁፍ ያወጣል።
-    ነጻ — ምንም ብር አያስፈልግም።
-    Returns: list of text lines
-    """
-    import base64, os
-
-    # API key — hardcoded
-    api_key = "AIzaSyChBiF1OGl-L7IaOOOXNHUE7Efmhae9mKw"
-
-    # id_only → JPEG base64
-    success, buf = cv2.imencode('.jpg', id_only, [cv2.IMWRITE_JPEG_QUALITY, 92])
-    if not success:
-        return []
-    img_b64 = base64.standard_b64encode(buf.tobytes()).decode('utf-8')
-
-    prompt = """ይህ የኢትዮጵያ ፋይዳ ዲጂታል መታወቂያ ካርድ ምስል ነው።
-በምስሉ ውስጥ ያሉትን ሁሉም ጽሁፎች ያለምንም ለውጥ ያንብብ።
-
-JSON ብቻ መልስ (ሌላ ምንም ጽሁፍ አትጨምር):
-{"lines": ["line1", "line2", ...]}
-
-ህጎች:
-- እያንዳንዱ መስመር የራሱ item ይሁን
-- ሁሉም ቁጥሮች ሙሉ ይነበቡ (digit አይጥፋ)
-- አማርኛ ፊደሎች ትክክለኛ Unicode
-- ሙሉ ስም / Full Name, Date of Birth, Sex, Date of Expiry labels ጨምሮ
-- background watermark አትጨምር"""
-
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}},
-                    {"text": prompt}
-                ]
-            }],
-            "generationConfig": {"temperature": 0, "maxOutputTokens": 1024}
-        }
-        resp = requests.post(url, json=payload, timeout=30)
-
-        if resp.status_code != 200:
-            return [f"[Gemini Error {resp.status_code}: {resp.text[:200]}]"]
-
-        content = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-        # Strip markdown fences if present
-        content = re.sub(r'^```[a-z]*\n?', '', content)
-        content = re.sub(r'\n?```$', '', content)
-
-        data  = json.loads(content)
-        lines = [l.strip() for l in data.get("lines", []) if l.strip()]
-        return lines
-
-    except json.JSONDecodeError:
-        # Fallback: return raw lines
-        lines = [l.strip() for l in content.split('\n') if len(l.strip()) > 1]
-        return lines
-    except Exception as e:
-        return [f"[OCR Error: {e}]"]
-
-
 
 # ══════════════════════════════════════════════════════════════════
 # Defaults
@@ -407,9 +182,11 @@ if uploaded_file:
 
     # ── ደረጃ 1: OCR ────────────────────────────────────────────
     with st.expander("📋 ደረጃ 1: OCR — ጽሁፍ ማውጣት", expanded=True):
-        if st.button("🔍 መረጃውን አውጣ (Claude Vision)", type="primary"):
-            with st.spinner("Claude Vision እየሰራ ነው..."):
-                lines  = run_claude_ocr(id_only)
+        if st.button("🔍 መረጃውን አውጣ", type="primary"):
+            with st.spinner("OCR እየሰራ ነው..."):
+                gray      = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
+                full_text = pytesseract.image_to_string(gray, lang='amh+eng')
+                lines     = [l.strip() for l in full_text.split('\n') if len(l.strip()) > 1]
                 st.session_state.ocr_lines    = lines
                 st.session_state.auto_detected = auto_detect_fields(lines)
 
@@ -581,21 +358,15 @@ if uploaded_file:
                 draw_smart_text(draw, (p['sex_x'], p['sex_y']), safe_line(sex_n), sz['sex'], sz['sex'], tc)
                 draw_smart_text(draw, (p['exp_x'], p['exp_y']), safe_line(exp_n), sz['exp'], sz['exp'], tc)
 
-                # ── Photo ──────────────────────────────────────────
+                # Photo
                 h_id, w_id = id_only.shape[:2]
-                photo = id_only[int(h_id*0.064):int(h_id*0.430),
-                                int(w_id*0.240):int(w_id*0.725)]
-                photo_pil = Image.fromarray(cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)).resize((190, 240))
-                bg.paste(photo_pil, (105, 165))
+                photo = id_only[int(h_id*0.02):int(h_id*0.40), int(w_id*0.02):int(w_id*0.55)]
+                bg.paste(Image.fromarray(cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)).resize((190, 240)), (105, 165))
 
-                # ── FAN / Barcode — smart detection ────────────────
-                fan_crop = find_fan_box(id_only)
-                if fan_crop is not None and fan_crop.size > 0:
-                    fan_pil = Image.fromarray(cv2.cvtColor(fan_crop, cv2.COLOR_BGR2RGB))
-                    fan_pil = fan_pil.resize((480, 70))
-                    bg.paste(fan_pil, (575, 645))
-                else:
-                    st.warning("⚠️ ባር ኮዱ ሳጥን ሊገኝ አልቻለም — FAN ሳይቀመጥ ይቀጥላል")
+                # FAN
+                fan = id_only[int(h_id*0.82):int(h_id*0.99), int(w_id*0.05):int(w_id*0.95)]
+                if fan.size > 0:
+                    bg.paste(Image.fromarray(cv2.cvtColor(fan, cv2.COLOR_BGR2RGB)).resize((480, 65)), (575, 648))
 
                 st.image(bg, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ", use_container_width=True)
 
