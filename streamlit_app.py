@@ -1,5 +1,4 @@
 import streamlit as st
-import pytesseract
 from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
@@ -7,9 +6,10 @@ import io
 import pandas as pd
 import requests
 import json
+import re
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
-FONT_ENG    = "Inter_18pt-Bold.ttf.ttf"
+FONT_ENG    = "Inter_18pt-Bold.ttf"
 BG_PATH     = "IMG_20260318_085131_234.jpg"
 FIREBASE_URL = "https://fayda-b365f-default-rtdb.firebaseio.com/settings.json"
 
@@ -228,6 +228,74 @@ def find_fan_box(id_only):
     return id_only[y1:y2 + 1, x1:x2 + 1]
 
 # ══════════════════════════════════════════════════════════════════
+# Gemini Vision OCR
+# ══════════════════════════════════════════════════════════════════
+def run_claude_ocr(id_only):
+    """
+    ምስሉን Google Gemini Vision API ላይ ልኮ ሁሉም ጽሁፍ ያወጣል።
+    ነጻ — ምንም ብር አያስፈልግም።
+    Returns: list of text lines
+    """
+    import base64, os
+
+    # API key — hardcoded
+    api_key = "AIzaSyChBiF1OGl-L7IaOOOXNHUE7Efmhae9mKw"
+
+    # id_only → JPEG base64
+    success, buf = cv2.imencode('.jpg', id_only, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    if not success:
+        return []
+    img_b64 = base64.standard_b64encode(buf.tobytes()).decode('utf-8')
+
+    prompt = """ይህ የኢትዮጵያ ፋይዳ ዲጂታል መታወቂያ ካርድ ምስል ነው።
+በምስሉ ውስጥ ያሉትን ሁሉም ጽሁፎች ያለምንም ለውጥ ያንብብ።
+
+JSON ብቻ መልስ (ሌላ ምንም ጽሁፍ አትጨምር):
+{"lines": ["line1", "line2", ...]}
+
+ህጎች:
+- እያንዳንዱ መስመር የራሱ item ይሁን
+- ሁሉም ቁጥሮች ሙሉ ይነበቡ (digit አይጥፋ)
+- አማርኛ ፊደሎች ትክክለኛ Unicode
+- ሙሉ ስም / Full Name, Date of Birth, Sex, Date of Expiry labels ጨምሮ
+- background watermark አትጨምር"""
+
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}},
+                    {"text": prompt}
+                ]
+            }],
+            "generationConfig": {"temperature": 0, "maxOutputTokens": 1024}
+        }
+        resp = requests.post(url, json=payload, timeout=30)
+
+        if resp.status_code != 200:
+            return [f"[Gemini Error {resp.status_code}: {resp.text[:200]}]"]
+
+        content = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+        # Strip markdown fences if present
+        content = re.sub(r'^```[a-z]*\n?', '', content)
+        content = re.sub(r'\n?```$', '', content)
+
+        data  = json.loads(content)
+        lines = [l.strip() for l in data.get("lines", []) if l.strip()]
+        return lines
+
+    except json.JSONDecodeError:
+        # Fallback: return raw lines
+        lines = [l.strip() for l in content.split('\n') if len(l.strip()) > 1]
+        return lines
+    except Exception as e:
+        return [f"[OCR Error: {e}]"]
+
+
+
+# ══════════════════════════════════════════════════════════════════
 # Defaults
 # ══════════════════════════════════════════════════════════════════
 DEFAULT_SETTINGS = {
@@ -339,11 +407,9 @@ if uploaded_file:
 
     # ── ደረጃ 1: OCR ────────────────────────────────────────────
     with st.expander("📋 ደረጃ 1: OCR — ጽሁፍ ማውጣት", expanded=True):
-        if st.button("🔍 መረጃውን አውጣ", type="primary"):
-            with st.spinner("OCR እየሰራ ነው..."):
-                gray      = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-                full_text = pytesseract.image_to_string(gray, lang='amh+eng')
-                lines     = [l.strip() for l in full_text.split('\n') if len(l.strip()) > 1]
+        if st.button("🔍 መረጃውን አውጣ (Claude Vision)", type="primary"):
+            with st.spinner("Claude Vision እየሰራ ነው..."):
+                lines  = run_claude_ocr(id_only)
                 st.session_state.ocr_lines    = lines
                 st.session_state.auto_detected = auto_detect_fields(lines)
 
