@@ -1,5 +1,4 @@
 import streamlit as st
-import pytesseract
 from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
@@ -7,6 +6,7 @@ import io
 import pandas as pd
 import requests
 import json
+import re
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
@@ -228,92 +228,88 @@ def find_fan_box(id_only):
     return id_only[y1:y2 + 1, x1:x2 + 1]
 
 # ══════════════════════════════════════════════════════════════════
-# Powerful OCR — preprocessing + post-processing
+# Claude Vision OCR — Tesseract ምትክ
 # ══════════════════════════════════════════════════════════════════
-def _preprocess_for_ocr(id_only):
+def run_claude_ocr(id_only):
     """
-    OCR ተስማሚ ምስል ያዘጋጃል:
-    1. 2x upscale — tesseract 300dpi+ ይወዳል
-    2. Bilateral filter — texture ያስወግዳል edges ይጠብቃል
-    3. Otsu threshold — global binarization
+    ምስሉን Claude Vision API ላይ ልኮ ሁሉም ጽሁፍ ያወጣል።
+    Tesseract ከሚሰጠው የተሻለ accuracy — አማርኛ፣ እንግሊዝኛ፣ ቁጥሮች ሁሉ ትክክል።
+
+    Returns: list of text lines (same format as before)
     """
-    ih, iw = id_only.shape[:2]
-    gray   = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-    big    = cv2.resize(gray, (iw * 2, ih * 2), interpolation=cv2.INTER_CUBIC)
-    filt   = cv2.bilateralFilter(big, 11, 80, 80)
-    _, bin_img = cv2.threshold(filt, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return bin_img
+    import base64
 
+    # id_only (numpy BGR) → JPEG bytes → base64
+    success, buf = cv2.imencode('.jpg', id_only, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    if not success:
+        return []
+    img_b64 = base64.standard_b64encode(buf.tobytes()).decode('utf-8')
 
-def _clean_ocr_output(raw_text):
-    """
-    OCR ውጤቱን ያጸዳና ጠቃሚ lines ብቻ ይመርጣል:
-    1. Noise lines (background pattern) ያስወጣቸዋል
-    2. Jun/ህበባ ና ሌሎች month misreads ያስተካክላቸዋል
-    3. FAN number prefix noise ያስወጣ ሙሉ ቁጥር ያቆያል
-    """
-    import re
+    prompt = """ይህ የኢትዮጵያ ፋይዳ ዲጂታል መታወቂያ ካርድ ምስል ነው።
+በምስሉ ውስጥ ያሉትን ሁሉም ጽሁፎች ያለምንም ለውጥ ያንብቡ።
 
-    MONTH_FIXES = {
-        'ህበባ': 'Jun', 'hhuu': 'Jun', 'hhn': 'Jun', 'hhba': 'Jun',
-        'JUH': 'Jun', 'JUW': 'Jun', 'JUN': 'Jun', 'Yun': 'Jun',
-        'JAH': 'Jan', 'JAN': 'Jan', 'Jah': 'Jan',
-        'FEB': 'Feb', 'FE8': 'Feb',
-        'MAR': 'Mar', 'MAK': 'Mar',
-        'APR': 'Apr',
-        'MAY': 'May',
-        'JUL': 'Jul', 'JUI': 'Jul',
-        'AUG': 'Aug', 'AU6': 'Aug',
-        'SEP': 'Sep',
-        'OCT': 'Oct', '0CT': 'Oct',
-        'NOV': 'Nov',
-        'DEC': 'Dec',
-    }
+በትክክል እንዲህ format አድርገህ JSON ብቻ መልስ (ሌላ ጽሁፍ አትጨምር):
+{
+  "lines": [
+    "line1 text here",
+    "line2 text here",
+    ...
+  ]
+}
 
-    lines_out = []
-    for raw in raw_text.split('\n'):
-        line = raw.strip()
-        if len(line) < 2:
-            continue
+አስፈላጊ ህጎች:
+- እያንዳንዱ የጽሁፍ መስመር የራሱ item ይሁን
+- ሁሉም ቁጥሮች ሙሉ በሙሉ ይነበቡ (ምንም digit አይጥፋ)
+- አማርኛ ፊደሎች ትክክለኛ Unicode ይሁኑ
+- Labels (ሙሉ ስም, Date of Birth, Sex, Date of Expiry) ጨምሮ ሁሉም ይነበቡ
+- background noise/watermark አትጨምር"""
 
-        # ── Noise filter: discard lines with too many garbage chars ──
-        useful = sum(1 for c in line
-                     if c.isalpha() or c.isdigit() or c in ' /|-:.')
-        if len(line) > 4 and useful / len(line) < 0.45:
-            continue
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1000,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": img_b64
+                            }
+                        },
+                        {"type": "text", "text": prompt}
+                    ]
+                }]
+            },
+            timeout=30
+        )
 
-        # ── Fix month names ──
-        for wrong, right in MONTH_FIXES.items():
-            line = re.sub(re.escape(wrong), right, line, flags=re.IGNORECASE)
+        if resp.status_code != 200:
+            return [f"[API Error {resp.status_code}]"]
 
-        # ── Fix FAN/barcode number: strip prefix noise, keep full digits ──
-        fan_match = re.search(r'\d{10,}', line)
-        if fan_match:
-            digits = fan_match.group()
-            prefix = line[:fan_match.start()].strip()
-            # Keep prefix only if it looks like a real short word
-            if prefix and prefix.isalpha() and len(prefix) <= 5:
-                line = f"{prefix} {digits}"
-            else:
-                line = digits
+        content = resp.json()["content"][0]["text"].strip()
 
-        if len(line.replace(' ', '')) >= 2:
-            lines_out.append(line)
+        # Parse JSON response
+        # Strip markdown code fences if present
+        content = re.sub(r'^```[a-z]*\n?', '', content)
+        content = re.sub(r'\n?```$', '', content)
 
-    return lines_out
+        data  = json.loads(content)
+        lines = [l.strip() for l in data.get("lines", []) if l.strip()]
+        return lines
 
+    except json.JSONDecodeError:
+        # Fallback: extract lines from raw text
+        lines = [l.strip() for l in content.split('\n') if len(l.strip()) > 1]
+        return lines
+    except Exception as e:
+        return [f"[OCR Error: {e}]"]
 
-def run_powerful_ocr(id_only):
-    """
-    ኃይለኛ OCR ሂደት:
-    • Bilateral filter + Otsu binarization
-    • amh+eng PSM 6
-    • Post-processing: noise removal + month fix + FAN fix
-    """
-    processed = _preprocess_for_ocr(id_only)
-    config    = '--oem 3 --psm 6 -c preserve_interword_spaces=1'
-    raw_text  = pytesseract.image_to_string(processed, lang='amh+eng', config=config)
-    return _clean_ocr_output(raw_text)
 
 # ══════════════════════════════════════════════════════════════════
 # Defaults
@@ -427,9 +423,9 @@ if uploaded_file:
 
     # ── ደረጃ 1: OCR ────────────────────────────────────────────
     with st.expander("📋 ደረጃ 1: OCR — ጽሁፍ ማውጣት", expanded=True):
-        if st.button("🔍 መረጃውን አውጣ", type="primary"):
-            with st.spinner("OCR እየሰራ ነው..."):
-                lines  = run_powerful_ocr(id_only)
+        if st.button("🔍 መረጃውን አውጣ (Claude Vision)", type="primary"):
+            with st.spinner("Claude Vision እየሰራ ነው..."):
+                lines  = run_claude_ocr(id_only)
                 st.session_state.ocr_lines    = lines
                 st.session_state.auto_detected = auto_detect_fields(lines)
 
