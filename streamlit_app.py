@@ -73,81 +73,154 @@ def draw_smart_text(draw, pos, text, size_amh=32, size_eng=28, fill=(45, 25, 5))
 # ══════════════════════════════════════════════════════════════════
 # Smart FAN / Barcode white-box detection
 # ══════════════════════════════════════════════════════════════════
-def find_fan_box(id_only):
+def _expand_white_box(id_only, bx, by, bx2, by2):
     """
-    pyzbar ባር ኮዱን ፈልጎ ዙሪያው ሙሉ ነጭ ሳጥን (ካርድ ቁጥር/ቀጥሮ/FAN labels ጨምሮ) ይቆርጣል።
-
-    ዘዴ:
-      1. pyzbar → barcode ቦታ ያገኛል
-      2. ↑ ↓ ← → scan: ነጭ ሳጥኑ ያበቃበት ድረስ ያስፋፋል
-         (ወደ ግራ label ጽሁፎች ስላሉ ሙሉ ሳጥን ይሸፍናል)
-      3. ሙሉ crop ያደርጋል
+    barcode bounding box ካገኘ በኋላ 4 አቅጣጫ ያስፋፋል።
     """
-    try:
-        from pyzbar import pyzbar
-    except ImportError:
-        return None
-
     ih, iw = id_only.shape[:2]
-    gray = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
-
-    # ── Step 1: barcode ፈልግ ──
-    barcodes = pyzbar.decode(gray)
-    if not barcodes:
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        barcodes = pyzbar.decode(clahe.apply(gray))
-    if not barcodes:
-        return None
-
-    bc  = barcodes[0]
-    pts = bc.polygon
-    bx  = min(p.x for p in pts)
-    by  = min(p.y for p in pts)
-    bx2 = max(p.x for p in pts)
-    by2 = max(p.y for p in pts)
-
-    # ── Step 2: ነጭ ፒክሰሎች mask ──
-    # ነጭ = low color variation (chroma) + high brightness
     img_f    = id_only.astype(np.int16)
     chroma   = img_f.max(axis=2) - img_f.min(axis=2)
     bright   = img_f.max(axis=2)
-    is_white = (chroma < 30) & (bright > 185)
+    is_white = (chroma < 30) & (bright > 180)
 
-    THRESH = 0.40  # ረድፍ/ዓምድ ቢያንስ 40% ነጭ ከሆነ ሳጥን ውስጥ ነው
+    THRESH = 0.38
 
-    # ── TOP: ወደ ላይ ──
     y1 = by
     for y in range(by - 1, -1, -1):
-        if is_white[y, max(0, bx):min(iw, bx2)].mean() >= THRESH:
-            y1 = y
-        else:
-            break
+        if is_white[y, max(0,bx):min(iw,bx2)].mean() >= THRESH: y1 = y
+        else: break
 
-    # ── BOTTOM: ወደ ታች ──
     y2 = by2
     for y in range(by2 + 1, ih):
-        if is_white[y, max(0, bx):min(iw, bx2)].mean() >= THRESH:
-            y2 = y
-        else:
-            break
+        if is_white[y, max(0,bx):min(iw,bx2)].mean() >= THRESH: y2 = y
+        else: break
 
-    # ── LEFT: ወደ ግራ (labels ስላሉ ሙሉ ይሸፍናል) ──
     x1 = bx
     for x in range(bx - 1, -1, -1):
-        if is_white[y1:y2 + 1, x].mean() >= THRESH:
-            x1 = x
-        else:
-            break
+        if is_white[y1:y2+1, x].mean() >= THRESH: x1 = x
+        else: break
 
-    # ── RIGHT: ወደ ቀኝ ──
     x2 = bx2
     for x in range(bx2 + 1, iw):
-        if is_white[y1:y2 + 1, x].mean() >= THRESH:
-            x2 = x
-        else:
-            break
+        if is_white[y1:y2+1, x].mean() >= THRESH: x2 = x
+        else: break
 
-    # Sanity check
+    return x1, y1, x2, y2
+
+
+def _find_barcode_by_stripes(id_only):
+    """
+    Fallback: pyzbar ካልሰራ strict white fraction range ተጠቅሞ FAN ሳጥን ያፈልጋል።
+
+    ምልከታ:
+      FAN box rows  → strict white 0.25–0.85  (barcode bars ስላሉ ሙሉ ነጭ አይደለም)
+      Phone UI rows → strict white > 0.85      (ሙሉ ነጭ)
+      Card BG rows  → strict white < 0.20      (colored pattern)
+
+    ስለዚህ 0.25–0.85 range ያሉ rows = FAN box
+    """
+    ih, iw = id_only.shape[:2]
+
+    img_f  = id_only.astype(np.int16)
+    chroma = img_f.max(axis=2) - img_f.min(axis=2)
+    bright = img_f.max(axis=2)
+    is_strict_white = (chroma < 15) & (bright > 210)
+    row_frac = is_strict_white.mean(axis=1)
+
+    # Search bottom 50% only
+    search_top = int(ih * 0.50)
+
+    # FAN box: moderate strict white (not phone UI, not card BG)
+    FAN_MIN = 0.25
+    FAN_MAX = 0.85
+
+    white_rows = [y for y in range(search_top, ih)
+                  if FAN_MIN <= row_frac[y] <= FAN_MAX]
+    if len(white_rows) < 5:
+        return None
+
+    # Find largest continuous band
+    wbr  = np.array(white_rows)
+    gaps = np.where(np.diff(wbr) > 12)[0]
+    if len(gaps) == 0:
+        bands = [(wbr[0], wbr[-1])]
+    else:
+        starts = [0] + list(gaps + 1)
+        ends   = list(gaps) + [len(wbr) - 1]
+        bands  = [(wbr[s], wbr[e]) for s, e in zip(starts, ends)]
+
+    y1, y2 = max(bands, key=lambda b: b[1] - b[0])
+
+    # Column range
+    col_frac   = is_strict_white[y1:y2 + 1, :].mean(axis=0)
+    white_cols = np.where(col_frac >= 0.20)[0]
+    if len(white_cols) < 10:
+        return None
+
+    return int(white_cols[0]), y1, int(white_cols[-1]), y2
+
+
+def find_fan_box(id_only):
+    """
+    FAN ነጭ ሳጥን ፈልጎ ይቆርጣል — ካርድ ቁጥር/ቀጥሮ/FAN labels ጨምሮ ሙሉ ሳጥን።
+
+    ዘዴ 1 (pyzbar):  ባርኮዱን directly ያነባል — fastest & most accurate
+    ዘዴ 2 (stripes): vertical edge pattern ይፈልጋል — blurry/angled images ላይ
+    ሁለቱም ካልሰሩ:    None ይመልሳል
+    """
+    ih, iw = id_only.shape[:2]
+
+    # ── Method 1: pyzbar ──────────────────────────────────────────
+    coords = None
+    try:
+        from pyzbar import pyzbar
+        gray = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
+
+        barcodes = pyzbar.decode(gray)
+
+        # retry with enhanced contrast
+        if not barcodes:
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            barcodes = pyzbar.decode(clahe.apply(gray))
+
+        # retry with upscaled image
+        if not barcodes:
+            big = cv2.resize(gray, (iw*2, ih*2), interpolation=cv2.INTER_CUBIC)
+            found = pyzbar.decode(big)
+            if found:
+                bc  = found[0]
+                pts = bc.polygon
+                bx  = min(p.x for p in pts) // 2
+                by  = min(p.y for p in pts) // 2
+                bx2 = max(p.x for p in pts) // 2
+                by2 = max(p.y for p in pts) // 2
+                coords = (bx, by, bx2, by2)
+
+        if not coords and barcodes:
+            bc  = barcodes[0]
+            pts = bc.polygon
+            coords = (
+                min(p.x for p in pts), min(p.y for p in pts),
+                max(p.x for p in pts), max(p.y for p in pts),
+            )
+
+    except ImportError:
+        pass
+
+    # ── Method 2: vertical stripe fallback ───────────────────────
+    if coords is None:
+        result = _find_barcode_by_stripes(id_only)
+        if result:
+            coords = result
+
+    if coords is None:
+        return None
+
+    bx, by, bx2, by2 = coords
+
+    # ── Expand to full white box ──────────────────────────────────
+    x1, y1, x2, y2 = _expand_white_box(id_only, bx, by, bx2, by2)
+
     fw, fh = x2 - x1, y2 - y1
     if fw < 30 or fh < 10:
         return None
