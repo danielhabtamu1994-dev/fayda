@@ -1,1 +1,4 @@
+tesseract-ocr
+tesseract-ocr-amh
+tesseract-ocr-eng
 libzbar0
