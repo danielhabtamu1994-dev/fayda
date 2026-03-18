@@ -265,9 +265,21 @@ def run_claude_ocr(id_only):
 - background noise/watermark አትጨምር"""
 
     try:
+        # API key — Streamlit secrets ወይም environment variable ከ
+        api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            import os
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return ["[Error: ANTHROPIC_API_KEY secret አልተቀመጠም። Streamlit Cloud → Settings → Secrets ውስጥ ያስገቡ]"]
+
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01"
+            },
             json={
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": 1000,
