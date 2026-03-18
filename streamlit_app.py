@@ -71,6 +71,112 @@ def draw_smart_text(draw, pos, text, size_amh=32, size_eng=28, fill=(45, 25, 5))
         x += bbox[2] - bbox[0]
 
 # ══════════════════════════════════════════════════════════════════
+# Smart FAN / Barcode white-box detection
+# ══════════════════════════════════════════════════════════════════
+def find_fan_box(id_only):
+    """
+    ባር ኮዱን pyzbar ተጠቅሞ ፈልጎ ዙሪያው ያለውን ነጭ ሳጥን ሙሉ ያወጣል።
+    ዘዴ:
+      1. pyzbar ባር ኮዱን ፈልጎ ቦታውን ይሰጣል
+      2. ከዚያ ቦታ ጀምሮ በ 4 አቅጣጫ ነጭ ሳጥኑ ያበቃበትን edge ይፈልጋል
+      3. ሙሉ ነጩ ሳጥን ይቆርጣል
+    """
+    try:
+        from pyzbar import pyzbar
+    except ImportError:
+        return None
+
+    ih, iw = id_only.shape[:2]
+    gray = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
+
+    # ── Step 1: find barcode location ──
+    barcodes = pyzbar.decode(gray)
+
+    if not barcodes:
+        # Try enhanced contrast if not found
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(gray)
+        barcodes = pyzbar.decode(enhanced)
+
+    if not barcodes:
+        return None  # ባር ኮዱ ሊገኝ አልቻለም
+
+    # Use the first (and usually only) barcode
+    bc = barcodes[0]
+    pts = bc.polygon
+    if len(pts) < 4:
+        # Fallback to bounding rect
+        r = bc.rect
+        bx, by, bw, bh = r.left, r.top, r.width, r.height
+    else:
+        bx  = min(p.x for p in pts)
+        by  = min(p.y for p in pts)
+        bx2 = max(p.x for p in pts)
+        by2 = max(p.y for p in pts)
+        bw  = bx2 - bx
+        bh  = by2 - by
+
+    # ── Step 2: expand outward to find full white box boundary ──
+    # "ነጭ" = all three channels > 190 AND chroma (max-min) < 25
+    img_f   = id_only.astype(np.int16)
+    chroma  = (img_f.max(axis=2) - img_f.min(axis=2))        # color variation
+    bright  = img_f.max(axis=2)                               # brightness
+    is_white = ((chroma < 25) & (bright > 190))               # boolean mask
+
+    # Helper: fraction of pixels in a line slice that are white
+    def row_white(y, x1, x2):
+        x1, x2 = max(0, x1), min(iw, x2)
+        if x1 >= x2: return 0.0
+        return is_white[y, x1:x2].mean()
+
+    def col_white(x, y1, y2):
+        y1, y2 = max(0, y1), min(ih, y2)
+        if y1 >= y2: return 0.0
+        return is_white[y1:y2, x].mean()
+
+    THRESH = 0.45   # minimum fraction to be considered "still inside white box"
+    MAX_EXPAND = max(ih, iw)  # search up to image size
+
+    # Expand TOP
+    y1 = by
+    for y in range(by, max(0, by - MAX_EXPAND), -1):
+        if row_white(y, bx, bx + bw) >= THRESH:
+            y1 = y
+        else:
+            break
+
+    # Expand BOTTOM
+    y2 = by + bh
+    for y in range(by + bh, min(ih - 1, by + bh + MAX_EXPAND)):
+        if row_white(y, bx, bx + bw) >= THRESH:
+            y2 = y
+        else:
+            break
+
+    # Expand LEFT
+    x1 = bx
+    for x in range(bx, max(0, bx - MAX_EXPAND), -1):
+        if col_white(x, y1, y2) >= THRESH:
+            x1 = x
+        else:
+            break
+
+    # Expand RIGHT
+    x2 = bx + bw
+    for x in range(bx + bw, min(iw - 1, bx + bw + MAX_EXPAND)):
+        if col_white(x, y1, y2) >= THRESH:
+            x2 = x
+        else:
+            break
+
+    # Sanity check: result must be wider than tall and have reasonable size
+    fw, fh = x2 - x1, y2 - y1
+    if fw < 30 or fh < 10 or fw < fh:
+        return None
+
+    return id_only[y1:y2 + 1, x1:x2 + 1]
+
+# ══════════════════════════════════════════════════════════════════
 # Defaults
 # ══════════════════════════════════════════════════════════════════
 DEFAULT_SETTINGS = {
@@ -358,21 +464,21 @@ if uploaded_file:
                 draw_smart_text(draw, (p['sex_x'], p['sex_y']), safe_line(sex_n), sz['sex'], sz['sex'], tc)
                 draw_smart_text(draw, (p['exp_x'], p['exp_y']), safe_line(exp_n), sz['exp'], sz['exp'], tc)
 
-                # Photo — calibrated ratios: y=0.064→0.430, x=0.240→0.725
+                # ── Photo ──────────────────────────────────────────
                 h_id, w_id = id_only.shape[:2]
                 photo = id_only[int(h_id*0.064):int(h_id*0.430),
                                 int(w_id*0.240):int(w_id*0.725)]
                 photo_pil = Image.fromarray(cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)).resize((190, 240))
                 bg.paste(photo_pil, (105, 165))
 
-                # FAN — ትክክለኛ ratio (sample ID ምስል ላይ calibrated)
-                # id_only ውስጥ: y: 0.728→0.840,  x: 0.210→0.725
-                fan = id_only[int(h_id*0.728):int(h_id*0.840),
-                              int(w_id*0.210):int(w_id*0.725)]
-                if fan.size > 0:
-                    fan_pil = Image.fromarray(cv2.cvtColor(fan, cv2.COLOR_BGR2RGB))
+                # ── FAN / Barcode — smart detection ────────────────
+                fan_crop = find_fan_box(id_only)
+                if fan_crop is not None and fan_crop.size > 0:
+                    fan_pil = Image.fromarray(cv2.cvtColor(fan_crop, cv2.COLOR_BGR2RGB))
                     fan_pil = fan_pil.resize((480, 70))
                     bg.paste(fan_pil, (575, 645))
+                else:
+                    st.warning("⚠️ ባር ኮዱ ሳጥን ሊገኝ አልቻለም — FAN ሳይቀመጥ ይቀጥላል")
 
                 st.image(bg, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ", use_container_width=True)
 
