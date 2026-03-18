@@ -265,10 +265,12 @@ def run_claude_ocr(id_only):
 - background noise/watermark አትጨምር"""
 
     try:
-        # API key — Streamlit secrets ወይም environment variable ከ
-        api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            import os
+        # API key — Streamlit secrets ወይም environment variable
+        import os
+        api_key = ""
+        try:
+            api_key = st.secrets["ANTHROPIC_API_KEY"]
+        except Exception:
             api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             return ["[Error: ANTHROPIC_API_KEY secret አልተቀመጠም። Streamlit Cloud → Settings → Secrets ውስጥ ያስገቡ]"]
