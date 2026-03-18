@@ -9,8 +9,8 @@ import requests
 import json
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
-FONT_ENG    = "Inter_18pt-Bold.ttf"
-BG_PATH     = "IMG_20260318_085131_234.jpg"
+FONT_ENG    = "Inter_18pt-Medium.ttf"
+BG_PATH     = "1000123189.jpg"
 FIREBASE_URL = "https://fayda-b365f-default-rtdb.firebaseio.com/settings.json"
 
 st.set_page_config(page_title="Fayda ID Converter", layout="wide", page_icon="🪪")
@@ -75,11 +75,13 @@ def draw_smart_text(draw, pos, text, size_amh=32, size_eng=28, fill=(45, 25, 5))
 # ══════════════════════════════════════════════════════════════════
 def find_fan_box(id_only):
     """
-    ባር ኮዱን pyzbar ተጠቅሞ ፈልጎ ዙሪያው ያለውን ነጭ ሳጥን ሙሉ ያወጣል።
+    pyzbar ባር ኮዱን ፈልጎ ዙሪያው ሙሉ ነጭ ሳጥን (ካርድ ቁጥር/ቀጥሮ/FAN labels ጨምሮ) ይቆርጣል።
+
     ዘዴ:
-      1. pyzbar ባር ኮዱን ፈልጎ ቦታውን ይሰጣል
-      2. ከዚያ ቦታ ጀምሮ በ 4 አቅጣጫ ነጭ ሳጥኑ ያበቃበትን edge ይፈልጋል
-      3. ሙሉ ነጩ ሳጥን ይቆርጣል
+      1. pyzbar → barcode ቦታ ያገኛል
+      2. ↑ ↓ ← → scan: ነጭ ሳጥኑ ያበቃበት ድረስ ያስፋፋል
+         (ወደ ግራ label ጽሁፎች ስላሉ ሙሉ ሳጥን ይሸፍናል)
+      3. ሙሉ crop ያደርጋል
     """
     try:
         from pyzbar import pyzbar
@@ -89,89 +91,65 @@ def find_fan_box(id_only):
     ih, iw = id_only.shape[:2]
     gray = cv2.cvtColor(id_only, cv2.COLOR_BGR2GRAY)
 
-    # ── Step 1: find barcode location ──
+    # ── Step 1: barcode ፈልግ ──
     barcodes = pyzbar.decode(gray)
-
     if not barcodes:
-        # Try enhanced contrast if not found
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        enhanced = clahe.apply(gray)
-        barcodes = pyzbar.decode(enhanced)
-
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        barcodes = pyzbar.decode(clahe.apply(gray))
     if not barcodes:
-        return None  # ባር ኮዱ ሊገኝ አልቻለም
+        return None
 
-    # Use the first (and usually only) barcode
-    bc = barcodes[0]
+    bc  = barcodes[0]
     pts = bc.polygon
-    if len(pts) < 4:
-        # Fallback to bounding rect
-        r = bc.rect
-        bx, by, bw, bh = r.left, r.top, r.width, r.height
-    else:
-        bx  = min(p.x for p in pts)
-        by  = min(p.y for p in pts)
-        bx2 = max(p.x for p in pts)
-        by2 = max(p.y for p in pts)
-        bw  = bx2 - bx
-        bh  = by2 - by
+    bx  = min(p.x for p in pts)
+    by  = min(p.y for p in pts)
+    bx2 = max(p.x for p in pts)
+    by2 = max(p.y for p in pts)
 
-    # ── Step 2: expand outward to find full white box boundary ──
-    # "ነጭ" = all three channels > 190 AND chroma (max-min) < 25
-    img_f   = id_only.astype(np.int16)
-    chroma  = (img_f.max(axis=2) - img_f.min(axis=2))        # color variation
-    bright  = img_f.max(axis=2)                               # brightness
-    is_white = ((chroma < 25) & (bright > 190))               # boolean mask
+    # ── Step 2: ነጭ ፒክሰሎች mask ──
+    # ነጭ = low color variation (chroma) + high brightness
+    img_f    = id_only.astype(np.int16)
+    chroma   = img_f.max(axis=2) - img_f.min(axis=2)
+    bright   = img_f.max(axis=2)
+    is_white = (chroma < 30) & (bright > 185)
 
-    # Helper: fraction of pixels in a line slice that are white
-    def row_white(y, x1, x2):
-        x1, x2 = max(0, x1), min(iw, x2)
-        if x1 >= x2: return 0.0
-        return is_white[y, x1:x2].mean()
+    THRESH = 0.40  # ረድፍ/ዓምድ ቢያንስ 40% ነጭ ከሆነ ሳጥን ውስጥ ነው
 
-    def col_white(x, y1, y2):
-        y1, y2 = max(0, y1), min(ih, y2)
-        if y1 >= y2: return 0.0
-        return is_white[y1:y2, x].mean()
-
-    THRESH = 0.45   # minimum fraction to be considered "still inside white box"
-    MAX_EXPAND = max(ih, iw)  # search up to image size
-
-    # Expand TOP
+    # ── TOP: ወደ ላይ ──
     y1 = by
-    for y in range(by, max(0, by - MAX_EXPAND), -1):
-        if row_white(y, bx, bx + bw) >= THRESH:
+    for y in range(by - 1, -1, -1):
+        if is_white[y, max(0, bx):min(iw, bx2)].mean() >= THRESH:
             y1 = y
         else:
             break
 
-    # Expand BOTTOM
-    y2 = by + bh
-    for y in range(by + bh, min(ih - 1, by + bh + MAX_EXPAND)):
-        if row_white(y, bx, bx + bw) >= THRESH:
+    # ── BOTTOM: ወደ ታች ──
+    y2 = by2
+    for y in range(by2 + 1, ih):
+        if is_white[y, max(0, bx):min(iw, bx2)].mean() >= THRESH:
             y2 = y
         else:
             break
 
-    # Expand LEFT
+    # ── LEFT: ወደ ግራ (labels ስላሉ ሙሉ ይሸፍናል) ──
     x1 = bx
-    for x in range(bx, max(0, bx - MAX_EXPAND), -1):
-        if col_white(x, y1, y2) >= THRESH:
+    for x in range(bx - 1, -1, -1):
+        if is_white[y1:y2 + 1, x].mean() >= THRESH:
             x1 = x
         else:
             break
 
-    # Expand RIGHT
-    x2 = bx + bw
-    for x in range(bx + bw, min(iw - 1, bx + bw + MAX_EXPAND)):
-        if col_white(x, y1, y2) >= THRESH:
+    # ── RIGHT: ወደ ቀኝ ──
+    x2 = bx2
+    for x in range(bx2 + 1, iw):
+        if is_white[y1:y2 + 1, x].mean() >= THRESH:
             x2 = x
         else:
             break
 
-    # Sanity check: result must be wider than tall and have reasonable size
+    # Sanity check
     fw, fh = x2 - x1, y2 - y1
-    if fw < 30 or fh < 10 or fw < fh:
+    if fw < 30 or fh < 10:
         return None
 
     return id_only[y1:y2 + 1, x1:x2 + 1]
