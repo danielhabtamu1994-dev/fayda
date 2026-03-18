@@ -7,10 +7,54 @@ import io
 import pandas as pd
 import re
 
-FONT_PATH = "sabaean.ttf"
-BG_PATH = "IMG_20260318_085131_234.jpg"
+FONT_AMH = "AbyssinicaSIL-Regular.ttf"   # አማርኛ ቁምፊዎች
+FONT_ENG = "Inter_18pt-Medium.ttf"       # English, numbers, symbols
+BG_PATH  = "1000123189.jpg"
 
 st.set_page_config(page_title="Fayda ID Converter", layout="wide", page_icon="🪪")
+
+# ─── Smart dual-font text rendering ───────────────────────────────────────────
+def is_ethiopic(char):
+    """Check if character is Ethiopic (Amharic) script."""
+    cp = ord(char)
+    return 0x1200 <= cp <= 0x137F or 0xAB00 <= cp <= 0xAB2F or 0x2D80 <= cp <= 0x2DDF
+
+def draw_smart_text(draw, pos, text, size_amh=32, size_eng=28, fill=(45, 25, 5)):
+    """
+    ጽሁፉን ቁምፊ በቁምፊ ፈትሾ አማርኛ → AbyssinicaSIL, ሌላ → Inter ይጠቀማል።
+    Mixed text (e.g. 'ወንድ / Male') ትክክል ያሳያል።
+    """
+    try:
+        f_amh = ImageFont.truetype(FONT_AMH, size_amh)
+        f_eng = ImageFont.truetype(FONT_ENG, size_eng)
+    except Exception as e:
+        f_amh = f_eng = ImageFont.load_default()
+
+    x, y = pos
+    # Split text into Ethiopic / non-Ethiopic segments
+    segments = []
+    if not text:
+        return
+    cur_script = 'amh' if is_ethiopic(text[0]) else 'eng'
+    cur_seg = text[0]
+
+    for ch in text[1:]:
+        script = 'amh' if is_ethiopic(ch) else 'eng'
+        if script == cur_script:
+            cur_seg += ch
+        else:
+            segments.append((cur_script, cur_seg))
+            cur_script = script
+            cur_seg = ch
+    segments.append((cur_script, cur_seg))
+
+    for script, seg in segments:
+        font = f_amh if script == 'amh' else f_eng
+        draw.text((x, y), seg, font=font, fill=fill)
+        # Advance x by text width
+        bbox = font.getbbox(seg)
+        x += bbox[2] - bbox[0]
+# ──────────────────────────────────────────────────────────────────────────────
 
 # ---- Default positions ----
 DEFAULT_POS = {
@@ -251,8 +295,8 @@ if uploaded_file:
                 draw = ImageDraw.Draw(bg)
 
                 try:
-                    f_name = ImageFont.truetype(FONT_PATH, 32)
-                    f_data = ImageFont.truetype(FONT_PATH, 28)
+                    f_name = ImageFont.truetype(FONT_AMH, 32)
+                    f_data = ImageFont.truetype(FONT_ENG, 28)
                 except Exception as fe:
                     st.warning(f"ፎንት ሊጫን አልቻለም ({fe}) — ነባሪ ፎንት ይጠቀማል")
                     f_name = ImageFont.load_default()
@@ -265,11 +309,11 @@ if uploaded_file:
                     idx = int(n) - 1
                     return lines[idx] if 0 <= idx < len(lines) else f"[{n} አልተገኘም]"
 
-                draw.text((p['amh_x'], p['amh_y']), safe_line(amh_n), font=f_name, fill=text_color)
-                draw.text((p['eng_x'], p['eng_y']), safe_line(eng_n), font=f_name, fill=text_color)
-                draw.text((p['dob_x'], p['dob_y']), safe_line(dob_n), font=f_data, fill=text_color)
-                draw.text((p['sex_x'], p['sex_y']), safe_line(sex_n), font=f_data, fill=text_color)
-                draw.text((p['exp_x'], p['exp_y']), safe_line(exp_n), font=f_data, fill=text_color)
+                draw_smart_text(draw, (p['amh_x'], p['amh_y']), safe_line(amh_n), size_amh=32, size_eng=28, fill=text_color)
+                draw_smart_text(draw, (p['eng_x'], p['eng_y']), safe_line(eng_n), size_amh=32, size_eng=28, fill=text_color)
+                draw_smart_text(draw, (p['dob_x'], p['dob_y']), safe_line(dob_n), size_amh=28, size_eng=26, fill=text_color)
+                draw_smart_text(draw, (p['sex_x'], p['sex_y']), safe_line(sex_n), size_amh=28, size_eng=26, fill=text_color)
+                draw_smart_text(draw, (p['exp_x'], p['exp_y']), safe_line(exp_n), size_amh=28, size_eng=26, fill=text_color)
 
                 # Photo
                 h_id, w_id = id_only.shape[:2]
