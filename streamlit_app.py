@@ -120,6 +120,10 @@ def init_state():
         st.session_state.ocr_lines = []
     if 'auto_detected' not in st.session_state:
         st.session_state.auto_detected = {}
+    if 'ocr_lines_back' not in st.session_state:
+        st.session_state.ocr_lines_back = []
+    if 'auto_detected_back' not in st.session_state:
+        st.session_state.auto_detected_back = {}
     if 'selected_field' not in st.session_state:
         st.session_state.selected_field = 'amh'
     if 'selected_field_back' not in st.session_state:
@@ -465,11 +469,70 @@ with tab_front:
 
 
 # ─────────────────────────────────────────────────────────────────
-# BACK TAB  (same position/size controls style as Front)
+# BACK TAB
 # ─────────────────────────────────────────────────────────────────
 with tab_back:
     if uploaded_back:
-        st.markdown("### 🕹️ Back — ቦታ እና ፊደል መጠን ማስተካከያ")
+        file_bytes_b = uploaded_back.read()
+        image_cv_b   = cv2.imdecode(np.frombuffer(file_bytes_b, np.uint8), cv2.IMREAD_COLOR)
+        h_b, w_b     = image_cv_b.shape[:2]
+        id_only_b    = image_cv_b[int(h_b*0.18):int(h_b*0.85), int(w_b*0.10):int(w_b*0.90)]
+
+        # ── ደረጃ 1: OCR ────────────────────────────────────────────
+        with st.expander("📋 ደረጃ 1: OCR — ጽሁፍ ማውጣት (Back)", expanded=True):
+            if st.button("🔍 መረጃውን አውጣ (Back)", type="primary", key="ocr_back"):
+                with st.spinner("OCR እየሰራ ነው..."):
+                    gray_b      = cv2.cvtColor(id_only_b, cv2.COLOR_BGR2GRAY)
+                    full_text_b = pytesseract.image_to_string(gray_b, lang='amh+eng')
+                    lines_b     = [l.strip() for l in full_text_b.split('\n') if len(l.strip()) > 1]
+                    st.session_state.ocr_lines_back    = lines_b
+                    st.session_state.auto_detected_back = auto_detect_fields(lines_b)
+
+            if st.session_state.get('ocr_lines_back'):
+                lines_b    = st.session_state.ocr_lines_back
+                detected_b = st.session_state.auto_detected_back
+                tag_map_b  = {'full_name':'← ስም','date_birth':'← ልደት ቀን','sex':'← ፆታ','date_expiry':'← ቀን ማብቂያ'}
+                rows_b = [{"ቁጥር": i+1, "ጽሁፍ": l,
+                           "": next((tag_map_b[f] for f,idx in detected_b.items() if idx==i+1), "")}
+                          for i, l in enumerate(lines_b)]
+                st.dataframe(pd.DataFrame(rows_b), use_container_width=True, hide_index=True)
+                if detected_b:
+                    st.success(f"✅ Auto-detection ተሳካ: {len(detected_b)}/4 fields")
+                else:
+                    st.warning("⚠️ Auto-detection አልተሳካም — ቁጥሮቹን በራስዎ ይምረጡ")
+
+        st.divider()
+
+        # ── ደረጃ 2: Field Numbers ──────────────────────────────────
+        with st.expander("🔢 ደረጃ 2: የጽሁፍ ቁጥሮች (Back)", expanded=True):
+            detected_b = st.session_state.get('auto_detected_back', {})
+            def det_b(key, default): return int(detected_b.get(key, default))
+            fn_idx_b = detected_b.get('full_name', None)
+
+            bc1, bc2, bc3 = st.columns(3)
+            with bc1:
+                amh_n_b = st.number_input("አማርኛ ስም ቁጥር:",    value=fn_idx_b if fn_idx_b else 5,              min_value=1, key="amh_n_b")
+                eng_n_b = st.number_input("እንግሊዝኛ ስም ቁጥር:",  value=(fn_idx_b+1) if fn_idx_b else 6,          min_value=1, key="eng_n_b")
+            with bc2:
+                dob_n_b = st.number_input("የትውልድ ቀን ቁጥር:",   value=det_b('date_birth', 8),                   min_value=1, key="dob_n_b")
+                sex_n_b = st.number_input("ፆታ ቁጥር:",          value=det_b('sex', 10),                         min_value=1, key="sex_n_b")
+            with bc3:
+                exp_n_b = st.number_input("የሚያበቃበት ቀን ቁጥር:", value=det_b('date_expiry', 12),                 min_value=1, key="exp_n_b")
+
+            if st.session_state.get('ocr_lines_back'):
+                lines_b = st.session_state.ocr_lines_back
+                def pv_b(n):
+                    idx = int(n)-1
+                    return lines_b[idx] if 0 <= idx < len(lines_b) else "—"
+                st.markdown("**ቅድመ ዕይታ:**")
+                for lbl, n in [("አማርኛ ስም", amh_n_b),("እንግሊዝኛ ስም", eng_n_b),
+                               ("የትውልድ ቀን", dob_n_b),("ፆታ", sex_n_b),("ቀን ማብቂያ", exp_n_b)]:
+                    st.markdown(f"- **{lbl}:** `{pv_b(n)}`")
+
+        st.divider()
+
+        # ── ደረጃ 3: Position + Size controls ──────────────────────
+        st.markdown("### 🕹️ ደረጃ 3: ቦታ እና ፊደል መጠን ማስተካከያ (Back)")
 
         field_labels_back = {
             'amh': 'አማርኛ ስም',
@@ -570,24 +633,43 @@ with tab_back:
 
         st.divider()
 
-        # ── Back Generate ──────────────────────────────────────────
-        st.markdown("### 🖼️ Back — መታወቂያ አዘጋጅ")
+        # ── ደረጃ 4: Generate ───────────────────────────────────────
+        st.markdown("### 🖼️ ደረጃ 4: Back መታወቂያ አዘጋጅ")
 
         if st.button("✅ Back መታወቂያውን አዘጋጅ / አድስ", type="primary", use_container_width=True, key="gen_back"):
-            try:
-                bg_back = Image.open(BG_PATH_BACK).convert("RGB")
-                st.image(bg_back, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Back)", use_container_width=True)
+            if not st.session_state.get('ocr_lines_back'):
+                st.warning("⚠️ መጀመሪያ OCR ሂደቱን ያካሂዱ (ደረጃ 1)")
+            else:
+                lines_b = st.session_state.ocr_lines_back
+                try:
+                    bg_back = Image.open(BG_PATH_BACK).convert("RGB")
+                    draw_b  = ImageDraw.Draw(bg_back)
+                    p_b     = st.session_state.pos_back
+                    sz_b    = st.session_state.size_back
+                    tc      = (45, 25, 5)
 
-                buf_back = io.BytesIO()
-                bg_back.save(buf_back, format="PNG")
-                st.download_button("⬇️ PNG አውርድ (Back)", buf_back.getvalue(),
-                                   "fayda_landscape_back.png", "image/png",
-                                   type="primary", use_container_width=True, key="dl_back")
+                    def safe_line_b(n):
+                        idx = int(n) - 1
+                        return lines_b[idx] if 0 <= idx < len(lines_b) else f"[{n} አልተገኘም]"
 
-            except FileNotFoundError as e:
-                st.error(f"❌ ፋይሉ አልተገኘም: {e}")
-            except Exception as e:
-                st.error(f"❌ ስህተት: {e}")
+                    draw_smart_text(draw_b, (p_b['amh_x'], p_b['amh_y']), safe_line_b(amh_n_b), sz_b['amh'], sz_b['amh'], tc)
+                    draw_smart_text(draw_b, (p_b['eng_x'], p_b['eng_y']), safe_line_b(eng_n_b), sz_b['eng'], sz_b['eng'], tc)
+                    draw_smart_text(draw_b, (p_b['dob_x'], p_b['dob_y']), safe_line_b(dob_n_b), sz_b['dob'], sz_b['dob'], tc)
+                    draw_smart_text(draw_b, (p_b['sex_x'], p_b['sex_y']), safe_line_b(sex_n_b), sz_b['sex'], sz_b['sex'], tc)
+                    draw_smart_text(draw_b, (p_b['exp_x'], p_b['exp_y']), safe_line_b(exp_n_b), sz_b['exp'], sz_b['exp'], tc)
+
+                    st.image(bg_back, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Back)", use_container_width=True)
+
+                    buf_back = io.BytesIO()
+                    bg_back.save(buf_back, format="PNG")
+                    st.download_button("⬇️ PNG አውርድ (Back)", buf_back.getvalue(),
+                                       "fayda_landscape_back.png", "image/png",
+                                       type="primary", use_container_width=True, key="dl_back")
+
+                except FileNotFoundError as e:
+                    st.error(f"❌ ፋይሉ አልተገኘም: {e}")
+                except Exception as e:
+                    st.error(f"❌ ስህተት: {e}")
 
     else:
         st.info("👆 ID Back ፋይዳ መታወቂያ ፎቶ ያስገቡ ለመጀመር")
