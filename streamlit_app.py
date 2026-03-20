@@ -9,6 +9,7 @@ import requests
 import json
 import barcode
 from barcode.writer import ImageWriter
+from rembg import remove as rembg_remove
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
@@ -420,57 +421,26 @@ if uploaded_profile:
             ph2, pw2 = photo_crop.shape[:2]
             photo_crop = photo_crop[trim:ph2-trim, trim:pw2-trim]
 
-            # ── Background removal — FloodFill from sample points ──
+            # ── Background removal — rembg (AI) → BW → transparent ──
             ph2, pw2 = photo_crop.shape[:2]
             try:
-                # BGRA canvas ይዘጋጃል
-                bgra = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2BGRA)
-
-                # Sample points: top-left, top-right, middle-left, middle-right
-                sample_points = [
-                    (5, 5),               # top-left
-                    (pw2-6, 5),           # top-right
-                    (5, ph2//2),          # middle-left
-                    (pw2-6, ph2//2),      # middle-right
-                ]
-
-                # FloodFill mask (2px ትልቅ ከ image)
-                flood_mask = np.zeros((ph2+2, pw2+2), np.uint8)
-                # BGR copy ለ floodfill
-                bgr_work = photo_crop.copy()
-
-                tolerance = 1   # ቀለም tolerance — contiguous only
-
-                for (sx, sy) in sample_points:
-                    seed_color = bgr_work[sy, sx].tolist()
-                    cv2.floodFill(
-                        bgr_work, flood_mask,
-                        seedPoint=(sx, sy),
-                        newVal=(255, 255, 255),
-                        loDiff=(tolerance, tolerance, tolerance, 0),
-                        upDiff=(tolerance, tolerance, tolerance, 0),
-                        flags=cv2.FLOODFILL_MASK_ONLY | (255 << 8)
-                        # FIXED_RANGE የለም — contiguous (ጎረቤት pixel ብቻ ያወዳድራል)
-                    )
-
-                # flood_mask[1:-1, 1:-1] = background pixels
-                bg_mask = flood_mask[1:-1, 1:-1]
-
+                # BGR → PIL RGB
+                pil_photo = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB))
+                # rembg — background ያስወግዳል → RGBA PNG
+                pil_nobg  = rembg_remove(pil_photo)
                 # ── Black & White ──────────────────────────────────
-                gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-                bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
-
-                # ── BGRA — background → transparent ───────────────
-                bgra = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
-                bgra[:, :, 3] = np.where(bg_mask == 255, 0, 255).astype(np.uint8)
+                r, g, b, a = pil_nobg.split()
+                gray       = pil_nobg.convert('L')           # grayscale
+                bw_rgba    = Image.merge('RGBA', (gray, gray, gray, a))
+                # ── BGRA ለ OpenCV ──────────────────────────────────
+                bgra = cv2.cvtColor(np.array(bw_rgba), cv2.COLOR_RGBA2BGRA)
                 return bgra
-
-            except Exception:
+            except Exception as e:
+                # fallback — BW ብቻ (transparent የለም)
                 gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
                 bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
                 bgra       = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
-                white_mask = np.all(bgra[:,:,:3] > 240, axis=2)
-                bgra[white_mask, 3] = 0
+                bgra[:, :, 3] = 255
                 return bgra
 
         def find_qr_in_card(card_bgr, margin=18):
