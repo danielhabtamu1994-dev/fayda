@@ -396,29 +396,44 @@ if uploaded_profile:
         def find_photo_in_card(card_bgr):
             gray_c  = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2GRAY)
             ch, cw  = card_bgr.shape[:2]
-            # ነጭ row ያልሆኑ rows ፈልግ (row mean < 220)
             row_means = np.mean(gray_c, axis=1)
             content_rows = np.where(row_means < 220)[0]
             if len(content_rows) == 0:
                 return card_bgr[:ch//2, :]
-            # content ሁለት ቡድን አለ — ፎቶ (ላይ) እና QR (ታች)
-            # ክፍፍሉን ፈልግ — ትልቅ gap ባለበት ቦታ
             gaps = np.diff(content_rows)
             if len(gaps) > 0 and np.max(gaps) > 10:
-                split_idx = np.argmax(gaps)
+                split_idx     = np.argmax(gaps)
                 photo_end_row = content_rows[split_idx]
-                # ከ ነጭ margin ጋር
-                pad = 5
+                pad    = 5
                 top    = max(0, content_rows[0] - pad)
                 bottom = min(ch, photo_end_row + pad)
                 photo_crop = card_bgr[top:bottom, :]
-                # column ነጭ border ያስወግዳል
                 col_means  = np.mean(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY), axis=0)
                 left_col   = next((j for j in range(len(col_means)) if col_means[j] < 220), 0)
                 right_col  = next((j for j in range(len(col_means)-1, -1, -1) if col_means[j] < 220), len(col_means)-1)
-                return photo_crop[:, left_col:right_col+1]
-            # gap ካልተሰጠ ላይ ክፍሉን ብቻ ይመልሳል
-            return card_bgr[:ch//2, :]
+                photo_crop = photo_crop[:, left_col:right_col+1]
+            else:
+                photo_crop = card_bgr[:ch//2, :]
+
+            # ── Background removal — GrabCut ──────────────────────
+            ph2, pw2 = photo_crop.shape[:2]
+            mask_gc  = np.zeros((ph2, pw2), np.uint8)
+            rect     = (int(pw2*0.05), int(ph2*0.05), int(pw2*0.90), int(ph2*0.90))
+            bgd_model = np.zeros((1,65), np.float64)
+            fgd_model = np.zeros((1,65), np.float64)
+            try:
+                cv2.grabCut(photo_crop, mask_gc, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
+                fg_mask = np.where((mask_gc==2)|(mask_gc==0), 0, 255).astype(np.uint8)
+                # ── Black & White (grayscale) ──────────────────────
+                gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
+                bw_photo   = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
+                # background → ነጭ
+                bw_photo[fg_mask == 0] = [255, 255, 255]
+                return bw_photo
+            except Exception:
+                # fallback — ቀጥታ BW ብቻ
+                gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
+                return cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
 
         def find_qr_in_card(card_bgr, margin=18):
             gray_c  = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2GRAY)
@@ -614,8 +629,8 @@ with tab_front:
                     st.session_state.size['fan_bc'] = int(vh)
                 with bc_c4:
                     st.caption("ስፋት (Width)")
-                    if "inp_fan_bc_w" not in st.session_state:
-                        st.session_state["inp_fan_bc_w"] = DEFAULT_SETTINGS['pos']['fan_bc_w']
+                    # ሁሌም pos['fan_bc_w'] ከ Firebase load ጋር sync ይሁን
+                    st.session_state["inp_fan_bc_w"] = st.session_state.pos.get('fan_bc_w', DEFAULT_SETTINGS['pos']['fan_bc_w'])
                     vw = st.number_input("", key="inp_fan_bc_w", label_visibility="collapsed", step=1, min_value=50)
                     st.session_state.pos['fan_bc_w'] = int(vw)
             else:
