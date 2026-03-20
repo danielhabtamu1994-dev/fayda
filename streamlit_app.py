@@ -85,13 +85,15 @@ DEFAULT_SETTINGS = {
         'exp_x': 710, 'exp_y': 555,
         'fan_x': 575, 'fan_y': 648,
         'fan_bc_x': 575, 'fan_bc_y': 600,
-        'fan_bc_w': 300,   # barcode width in px
+        'fan_bc_w': 300,
+        'photo_x': 105, 'photo_y': 165,
+        'photo_w': 190, 'photo_h': 240,
     },
     'size': {
         'amh': 32, 'eng': 32,
         'dob': 28, 'sex': 28, 'exp': 28,
         'fan': 28,
-        'fan_bc': 120,   # barcode height in px
+        'fan_bc': 120,
     }
 }
 
@@ -105,8 +107,10 @@ DEFAULT_SETTINGS_BACK = {
         'zone_amh_x': 620, 'zone_amh_y': 380,
         'zone_eng_x': 620, 'zone_eng_y': 420,
         'woreda_amh_x': 620, 'woreda_amh_y': 460,
-        'woreda_amh_num_x': 750, 'woreda_amh_num_y': 460,  # ቁጥር ለብቻ
+        'woreda_amh_num_x': 750, 'woreda_amh_num_y': 460,
         'woreda_eng_x': 620, 'woreda_eng_y': 500,
+        'qr_x': 100, 'qr_y': 150,
+        'qr_w': 200, 'qr_h': 200,
     },
     'size': {
         'phone': 28, 'fin': 28,
@@ -141,6 +145,10 @@ def init_state():
         st.session_state.fan_manual = ''
     if 'fin_manual' not in st.session_state:
         st.session_state.fin_manual = ''
+    if 'photo_cropped' not in st.session_state:
+        st.session_state.photo_cropped = None
+    if 'qr_cropped' not in st.session_state:
+        st.session_state.qr_cropped = None
     if 'selected_field' not in st.session_state:
         st.session_state.selected_field = 'amh'
     if 'selected_field_back' not in st.session_state:
@@ -353,8 +361,28 @@ with up_col3:
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════
-# Settings Tabs — Front / Back
+# Profile & QR — Auto Crop
 # ══════════════════════════════════════════════════════════════════
+if uploaded_profile:
+    prof_bytes = uploaded_profile.read()
+    prof_cv    = cv2.imdecode(np.frombuffer(prof_bytes, np.uint8), cv2.IMREAD_COLOR)
+    ph, pw     = prof_cv.shape[:2]
+
+    # ምስሉ ቁመቱ ሁለት ክፍል — ላይ 48% = ፎቶ፣ ታች 52% = QR
+    photo_part = prof_cv[0 : int(ph * 0.48), :]
+    qr_part    = prof_cv[int(ph * 0.52) : ph, :]
+
+    st.session_state.photo_cropped = photo_part
+    st.session_state.qr_cropped    = qr_part
+
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        st.markdown("**✂️ ፎቶ (Front ID ይሄዳል)**")
+        st.image(cv2.cvtColor(photo_part, cv2.COLOR_BGR2RGB), use_container_width=True)
+    with pc2:
+        st.markdown("**✂️ QR Code (Back ID ይሄዳል)**")
+        st.image(cv2.cvtColor(qr_part, cv2.COLOR_BGR2RGB), use_container_width=True)
+    st.divider()
 tab_front, tab_back = st.tabs(["🔵 Front Settings", "🟠 Back Settings"])
 
 # ─────────────────────────────────────────────────────────────────
@@ -521,6 +549,25 @@ with tab_front:
                     vs = st.number_input("", key=f"fs_{fk}", label_visibility="collapsed", step=1, min_value=1)
                     st.session_state.size[fk] = int(vs)
 
+        # ── Photo ቦታ ──────────────────────────────────────────────
+        st.markdown("**📸 ፎቶ (Profile ምስል)**")
+        for pk in ['photo_x','photo_y','photo_w','photo_h']:
+            if f"fp_{pk}" not in st.session_state:
+                st.session_state[f"fp_{pk}"] = DEFAULT_SETTINGS['pos'][pk]
+        ph_c1, ph_c2, ph_c3, ph_c4 = st.columns(4)
+        with ph_c1:
+            st.caption("X")
+            st.session_state.pos['photo_x'] = int(st.number_input("", key="fp_photo_x", label_visibility="collapsed", step=1))
+        with ph_c2:
+            st.caption("Y")
+            st.session_state.pos['photo_y'] = int(st.number_input("", key="fp_photo_y", label_visibility="collapsed", step=1))
+        with ph_c3:
+            st.caption("ስፋት (W)")
+            st.session_state.pos['photo_w'] = int(st.number_input("", key="fp_photo_w", label_visibility="collapsed", step=1, min_value=10))
+        with ph_c4:
+            st.caption("ቁመት (H)")
+            st.session_state.pos['photo_h'] = int(st.number_input("", key="fp_photo_h", label_visibility="collapsed", step=1, min_value=10))
+
         col_r1, col_r2 = st.columns(2)
         with col_r1:
             if st.button("↩️ ቦታዎችን ወደ ነባሪ መልስ", use_container_width=True, key="reset_front"):
@@ -575,7 +622,8 @@ with tab_front:
                     # FAN — manual ሳጥን ወይም OCR ከ session_state
                     fan_digits_gen = ''.join(c for c in st.session_state.get('fan_manual','') if c.isdigit())
                     if fan_digits_gen:
-                        draw_smart_text(draw, (p['fan_x'], p['fan_y']), fan_digits_gen, sz['fan'], sz['fan'], tc)
+                        fan_formatted = ' '.join(fan_digits_gen[i:i+4] for i in range(0, len(fan_digits_gen), 4))
+                        draw_smart_text(draw, (p['fan_x'], p['fan_y']), fan_formatted, sz['fan'], sz['fan'], tc)
 
                     # FAN Barcode
                     if fan_digits_gen:
@@ -586,25 +634,14 @@ with tab_front:
                             bc_img = bc_img.resize((bc_w, bc_h), Image.LANCZOS)
                             bg.paste(bc_img, (int(p['fan_bc_x']), int(p['fan_bc_y'])))
 
-                    # Photo — background size ላይ ተመስርቶ ይቀምጣል
-                    bg_w, bg_h = bg.size
-                    h_id, w_id = id_only.shape[:2]
-                    photo_crop = id_only[int(h_id*0.01):int(h_id*0.55), int(w_id*0.01):int(w_id*0.48)]
-                    photo_h = int(bg_h * 0.33)
-                    photo_w = int(photo_h * 0.75)
-                    photo_x = int(bg_w * 0.03)
-                    photo_y = int(bg_h * 0.22)
-                    if photo_crop.size > 0:
-                        bg.paste(Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB)).resize((photo_w, photo_h)), (photo_x, photo_y))
-
-                    # FAN — ታች ቀጭን ሰቀላ
-                    fan_crop = id_only[int(h_id*0.80):int(h_id*1.00), int(w_id*0.03):int(w_id*0.97)]
-                    fan_w = int(bg_w * 0.48)
-                    fan_h = int(bg_h * 0.09)
-                    fan_x = int(bg_w * 0.37)
-                    fan_y = int(bg_h * 0.88)
-                    if fan_crop.size > 0:
-                        bg.paste(Image.fromarray(cv2.cvtColor(fan_crop, cv2.COLOR_BGR2RGB)).resize((fan_w, fan_h)), (fan_x, fan_y))
+                    # Photo — Profile ምስል ከ session_state
+                    if st.session_state.photo_cropped is not None:
+                        ph_img = Image.fromarray(cv2.cvtColor(st.session_state.photo_cropped, cv2.COLOR_BGR2RGB))
+                        pw = int(st.session_state.pos.get('photo_w', 190))
+                        ph = int(st.session_state.pos.get('photo_h', 240))
+                        px = int(st.session_state.pos.get('photo_x', 105))
+                        py = int(st.session_state.pos.get('photo_y', 165))
+                        bg.paste(ph_img.resize((pw, ph), Image.LANCZOS), (px, py))
 
                     st.image(bg, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Front)", use_container_width=True)
 
@@ -801,6 +838,25 @@ with tab_back:
                 vs = st.number_input("", key=f"bs_{fk}", label_visibility="collapsed", step=1, min_value=1)
                 st.session_state.size_back[fk] = int(vs)
 
+        # ── QR Code ቦታ ────────────────────────────────────────────
+        st.markdown("**📷 QR Code (Profile ምስል)**")
+        for qk in ['qr_x','qr_y','qr_w','qr_h']:
+            if f"bp_{qk}" not in st.session_state:
+                st.session_state[f"bp_{qk}"] = DEFAULT_SETTINGS_BACK['pos'][qk]
+        qr_c1, qr_c2, qr_c3, qr_c4 = st.columns(4)
+        with qr_c1:
+            st.caption("X")
+            st.session_state.pos_back['qr_x'] = int(st.number_input("", key="bp_qr_x", label_visibility="collapsed", step=1))
+        with qr_c2:
+            st.caption("Y")
+            st.session_state.pos_back['qr_y'] = int(st.number_input("", key="bp_qr_y", label_visibility="collapsed", step=1))
+        with qr_c3:
+            st.caption("ስፋት (W)")
+            st.session_state.pos_back['qr_w'] = int(st.number_input("", key="bp_qr_w", label_visibility="collapsed", step=1, min_value=10))
+        with qr_c4:
+            st.caption("ቁመት (H)")
+            st.session_state.pos_back['qr_h'] = int(st.number_input("", key="bp_qr_h", label_visibility="collapsed", step=1, min_value=10))
+
         col_rb1, col_rb2 = st.columns(2)
         with col_rb1:
             if st.button("↩️ ቦታዎችን ወደ ነባሪ መልስ (Back)", use_container_width=True, key="reset_back"):
@@ -868,6 +924,15 @@ with tab_back:
                     # ወረዳ ቁጥር ለብቻ
                     draw_smart_text(draw_b, (p_b['woreda_amh_num_x'], p_b['woreda_amh_num_y']), woreda_numpart,            sz_b['woreda_amh_num'], sz_b['woreda_amh_num'], tc)
                     draw_smart_text(draw_b, (p_b['woreda_eng_x'],     p_b['woreda_eng_y']),     safe_line_b(woreda_eng_n_b),sz_b['woreda_eng'],   sz_b['woreda_eng'],     tc)
+
+                    # QR Code — Profile ምስል ከ session_state
+                    if st.session_state.qr_cropped is not None:
+                        qr_img = Image.fromarray(cv2.cvtColor(st.session_state.qr_cropped, cv2.COLOR_BGR2RGB))
+                        qw = int(st.session_state.pos_back.get('qr_w', 200))
+                        qh = int(st.session_state.pos_back.get('qr_h', 200))
+                        qx = int(st.session_state.pos_back.get('qr_x', 100))
+                        qy = int(st.session_state.pos_back.get('qr_y', 150))
+                        bg_back.paste(qr_img.resize((qw, qh), Image.LANCZOS), (qx, qy))
 
                     st.image(bg_back, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Back)", use_container_width=True)
 
