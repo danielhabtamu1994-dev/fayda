@@ -659,8 +659,8 @@ with tab_front:
                     st.session_state.size['fan_bc'] = int(vh)
                 with bc_c4:
                     st.caption("ስፋት (Width)")
-                    # ሁሌም pos['fan_bc_w'] ከ Firebase load ጋር sync ይሁን
-                    st.session_state["inp_fan_bc_w"] = st.session_state.pos.get('fan_bc_w', DEFAULT_SETTINGS['pos']['fan_bc_w'])
+                    if "inp_fan_bc_w" not in st.session_state:
+                        st.session_state["inp_fan_bc_w"] = st.session_state.pos.get('fan_bc_w', DEFAULT_SETTINGS['pos']['fan_bc_w'])
                     vw = st.number_input("", key="inp_fan_bc_w", label_visibility="collapsed", step=1, min_value=50)
                     st.session_state.pos['fan_bc_w'] = int(vw)
             else:
@@ -756,7 +756,7 @@ with tab_front:
                     # FAN Barcode
                     if fan_digits_gen:
                         bc_h = int(sz['fan_bc'])
-                        bc_w = int(p.get('fan_bc_w', 300))
+                        bc_w = int(st.session_state.get('inp_fan_bc_w', p.get('fan_bc_w', 300)))
                         bc_img = generate_barcode_image(fan_digits_gen, height_px=bc_h)
                         if bc_img:
                             bc_img = bc_img.resize((bc_w, bc_h), Image.LANCZOS)
