@@ -130,6 +130,10 @@ def init_state():
         st.session_state.ocr_lines_back = []
     if 'auto_detected_back' not in st.session_state:
         st.session_state.auto_detected_back = {}
+    if 'fan_manual' not in st.session_state:
+        st.session_state.fan_manual = ''
+    if 'fin_manual' not in st.session_state:
+        st.session_state.fin_manual = ''
     if 'selected_field' not in st.session_state:
         st.session_state.selected_field = 'amh'
     if 'selected_field_back' not in st.session_state:
@@ -166,6 +170,11 @@ def auto_detect_fields(lines):
     found = {}
     for i, line in enumerate(lines):
         ll = line.lower().strip()
+        # FAN — 16-digit number
+        if 'fan' not in found:
+            digits = ''.join(c for c in line.strip() if c.isdigit())
+            if len(digits) == 16:
+                found['fan'] = i + 1
         for field, kws in LABEL_KEYWORDS.items():
             if field in found:
                 continue
@@ -333,11 +342,17 @@ with tab_front:
                     lines     = [l.strip() for l in full_text.split('\n') if len(l.strip()) > 1]
                     st.session_state.ocr_lines    = lines
                     st.session_state.auto_detected = auto_detect_fields(lines)
+                    # FAN auto-fill
+                    fan_idx = st.session_state.auto_detected.get('fan')
+                    if fan_idx:
+                        raw = lines[fan_idx - 1]
+                        digits = ''.join(c for c in raw if c.isdigit())
+                        st.session_state.fan_manual = digits
 
             if st.session_state.ocr_lines:
                 lines    = st.session_state.ocr_lines
                 detected = st.session_state.auto_detected
-                tag_map  = {'full_name':'← ስም','date_birth':'← ልደት ቀን','sex':'← ፆታ','date_expiry':'← ቀን ማብቂያ'}
+                tag_map  = {'fan':'← FAN','full_name':'← ስም','date_birth':'← ልደት ቀን','sex':'← ፆታ','date_expiry':'← ቀን ማብቂያ'}
                 rows = [{"ቁጥር": i+1, "ጽሁፍ": l,
                          "": next((tag_map[f] for f,idx in detected.items() if idx==i+1), "")}
                         for i, l in enumerate(lines)]
@@ -387,6 +402,24 @@ with tab_front:
                 for lbl, n in [("አማርኛ ስም", amh_n),("እንግሊዝኛ ስም", eng_n),
                                ("የትውልድ ቀን", dob_n),("ፆታ", sex_n),("ቀን ማብቂያ", exp_n)]:
                     st.markdown(f"- **{lbl}:** `{pv(n)}`")
+
+        st.divider()
+
+        # ── FAN ሳጥን ──────────────────────────────────────────────
+        st.markdown("### 🔖 FAN")
+        fan_col1, fan_col2 = st.columns([3, 1])
+        with fan_col1:
+            fan_value = st.text_input(
+                "FAN (16 ዲጂት) — OCR ካልተሳካ manually ያስገቡ:",
+                value=st.session_state.fan_manual,
+                key="fan_manual",
+                placeholder="ምሳሌ: 1234567890123456",
+                label_visibility="visible"
+            )
+        with fan_col2:
+            st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+            fan_digits_only = ''.join(c for c in fan_value if c.isdigit())
+            st.markdown(f"**{len(fan_digits_only)}/16 ዲጂት**")
 
         st.divider()
 
@@ -538,6 +571,12 @@ with tab_back:
                     lines_b     = [l.strip() for l in full_text_b.split('\n') if len(l.strip()) > 1]
                     st.session_state.ocr_lines_back    = lines_b
                     st.session_state.auto_detected_back = auto_detect_fields_back(lines_b)
+                    # FIN auto-fill
+                    fin_idx = st.session_state.auto_detected_back.get('fin')
+                    if fin_idx:
+                        raw_fin = lines_b[fin_idx - 1]
+                        digits_fin = ''.join(c for c in raw_fin if c.isdigit())
+                        st.session_state.fin_manual = digits_fin
 
             if st.session_state.get('ocr_lines_back'):
                 lines_b    = st.session_state.ocr_lines_back
@@ -621,6 +660,27 @@ with tab_back:
                     ("ወረዳ (English)",  woreda_eng_n_b),
                 ]:
                     st.markdown(f"- **{lbl}:** `{pv_b(n)}`")
+
+        st.divider()
+
+        # ── FIN ሳጥን ──────────────────────────────────────────────
+        st.markdown("### 🔢 FIN")
+        fin_col1, fin_col2 = st.columns([3, 1])
+        with fin_col1:
+            fin_value = st.text_input(
+                "FIN (12 ዲጂት) — OCR ካልተሳካ manually ያስገቡ:",
+                value=st.session_state.fin_manual,
+                key="fin_manual",
+                placeholder="ምሳሌ: 123456789012",
+                label_visibility="visible"
+            )
+        with fin_col2:
+            st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+            fin_digits_only = ''.join(c for c in fin_value if c.isdigit())
+            fin_formatted_preview = '-'.join(fin_digits_only[i:i+4] for i in range(0, len(fin_digits_only), 4))
+            st.markdown(f"**{len(fin_digits_only)}/12 ዲጂት**")
+            if fin_digits_only:
+                st.caption(fin_formatted_preview)
 
         st.divider()
 
@@ -711,9 +771,12 @@ with tab_back:
                         idx = int(n) - 1
                         return lines_b[idx] if 0 <= idx < len(lines_b) else f"[{n} አልተገኘም]"
 
-                    # FIN — ቁጥሮች ብቻ
-                    fin_raw    = safe_line_b(fin_n_b)
-                    fin_digits = ''.join(c for c in fin_raw if c.isdigit())
+                    # FIN — manual ሳጥን ወይም OCR ከ session_state፣ በየ 4 ዲጂቱ (-) ይጨምር
+                    fin_digits_gen = ''.join(c for c in st.session_state.get('fin_manual','') if c.isdigit())
+                    if not fin_digits_gen and st.session_state.get('ocr_lines_back'):
+                        fin_raw       = safe_line_b(fin_n_b)
+                        fin_digits_gen = ''.join(c for c in fin_raw if c.isdigit())
+                    fin_formatted = '-'.join(fin_digits_gen[i:i+4] for i in range(0, len(fin_digits_gen), 4))
 
                     # ወረዳ አማርኛ — ጽሁፍ ለብቻ (non-digit) ቁጥር ለብቻ (digit)
                     woreda_raw     = safe_line_b(woreda_amh_n_b)
@@ -721,7 +784,7 @@ with tab_back:
                     woreda_numpart = ''.join(c for c in woreda_raw if c.isdigit()).strip()
 
                     draw_smart_text(draw_b, (p_b['phone_x'],          p_b['phone_y']),          safe_line_b(phone_n_b),    sz_b['phone'],          sz_b['phone'],          tc)
-                    draw_smart_text(draw_b, (p_b['fin_x'],            p_b['fin_y']),            fin_digits,                sz_b['fin'],            sz_b['fin'],            tc)
+                    draw_smart_text(draw_b, (p_b['fin_x'],            p_b['fin_y']),            fin_formatted,             sz_b['fin'],            sz_b['fin'],            tc)
                     draw_smart_text(draw_b, (p_b['addr_amh_x'],       p_b['addr_amh_y']),       safe_line_b(addr_amh_n_b), sz_b['addr_amh'],       sz_b['addr_amh'],       tc)
                     draw_smart_text(draw_b, (p_b['addr_eng_x'],       p_b['addr_eng_y']),       safe_line_b(addr_eng_n_b), sz_b['addr_eng'],       sz_b['addr_eng'],       tc)
                     draw_smart_text(draw_b, (p_b['zone_amh_x'],       p_b['zone_amh_y']),       safe_line_b(zone_amh_n_b), sz_b['zone_amh'],       sz_b['zone_amh'],       tc)
