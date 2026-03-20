@@ -315,6 +315,7 @@ with st.container():
                     st.session_state[f"fx_{fk}"] = st.session_state.pos[f"{fk}_x"]
                     st.session_state[f"fy_{fk}"] = st.session_state.pos[f"{fk}_y"]
                     st.session_state[f"fs_{fk}"] = st.session_state.size[fk]
+                st.session_state["inp_fan_bc_w"] = st.session_state.pos.get('fan_bc_w', DEFAULT_SETTINGS['pos']['fan_bc_w'])
                 for fk in ['phone','fin','addr_amh','addr_eng','zone_amh','zone_eng','woreda_amh','woreda_amh_num','woreda_eng']:
                     st.session_state[f"bx_{fk}"] = st.session_state.pos_back[f"{fk}_x"]
                     st.session_state[f"by_{fk}"] = st.session_state.pos_back[f"{fk}_y"]
@@ -367,21 +368,93 @@ if uploaded_profile:
     prof_bytes = uploaded_profile.read()
     prof_cv    = cv2.imdecode(np.frombuffer(prof_bytes, np.uint8), cv2.IMREAD_COLOR)
     ph, pw     = prof_cv.shape[:2]
+    gray_prof  = cv2.cvtColor(prof_cv, cv2.COLOR_BGR2GRAY)
 
-    # ምስሉ ቁመቱ ሁለት ክፍል — ላይ 48% = ፎቶ፣ ታች 52% = QR
-    photo_part = prof_cv[0 : int(ph * 0.48), :]
-    qr_part    = prof_cv[int(ph * 0.52) : ph, :]
+    # ══ QR Code — finder patterns ይፈልጋል (3 ትላልቅ ጥቁር ሳጥኖች) ══
+    def find_qr_region(img_bgr):
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        _, bw = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY_INV)
+        cnts, _ = cv2.findContours(bw, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        squares = []
+        for c in cnts:
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.04 * peri, True)
+            if len(approx) == 4:
+                x, y, w, h = cv2.boundingRect(approx)
+                ar = w / float(h)
+                area = w * h
+                if 0.8 < ar < 1.2 and area > 400:
+                    squares.append((x, y, w, h))
+        if len(squares) < 3:
+            return None
+        # ትላልቅ 3 ሳጥኖችን ምረጥ
+        squares = sorted(squares, key=lambda s: s[2]*s[3], reverse=True)[:3]
+        xs = [s[0] for s in squares]
+        ys = [s[1] for s in squares]
+        ws = [s[2] for s in squares]
+        hs = [s[3] for s in squares]
+        pad = int(max(ws + hs) * 0.5)
+        x1 = max(0, min(xs) - pad)
+        y1 = max(0, min(ys) - pad)
+        x2 = min(img_bgr.shape[1], max(x+w for x,y,w,h in squares) + pad)
+        y2 = min(img_bgr.shape[0], max(y+h for x,y,w,h in squares) + pad)
+        return img_bgr[y1:y2, x1:x2]
 
-    st.session_state.photo_cropped = photo_part
-    st.session_state.qr_cropped    = qr_part
+    # ══ ፎቶ — 4-ማዕዘን ትልቅ contour ፈልጎ white border ይቁረጥ ══
+    def find_rect_photo(img_bgr):
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        # ፎቶ ክፍል ላይ focus — ምስሉ ላይ ሶስት አምሳያ ይኖራሉ (ክብ + ትልቅ ፎቶ + ትንሽ)
+        # ትልቁ 4-ማዕዘን contour ፈልጎ ያወጣ
+        blurred = cv2.GaussianBlur(gray, (5,5), 0)
+        edges   = cv2.Canny(blurred, 30, 100)
+        cnts, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        best = None
+        best_area = 0
+        img_area  = img_bgr.shape[0] * img_bgr.shape[1]
+        for c in cnts:
+            peri   = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+            if len(approx) == 4:
+                x, y, w, h = cv2.boundingRect(approx)
+                area = w * h
+                ar   = w / float(h)
+                # ጠቅላላ ምስሉ ሳይሆን ክፍሉ — 5%–60% area, portrait shape
+                if 0.05 * img_area < area < 0.65 * img_area and 0.5 < ar < 1.0:
+                    if area > best_area:
+                        best_area = area
+                        best = (x, y, w, h)
+        if best is None:
+            return None
+        x, y, w, h = best
+        crop = img_bgr[y:y+h, x:x+w]
+        # White border ያስወግዳል
+        gray_c = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray_c, 240, 255, cv2.THRESH_BINARY_INV)
+        coords  = cv2.findNonZero(mask)
+        if coords is not None:
+            rx, ry, rw, rh = cv2.boundingRect(coords)
+            crop = crop[ry:ry+rh, rx:rx+rw]
+        return crop
+
+    qr_result    = find_qr_region(prof_cv)
+    photo_result = find_rect_photo(prof_cv)
+
+    # fallback ካልተሳካ
+    if qr_result is None:
+        qr_result = prof_cv[int(ph * 0.52):ph, :]
+    if photo_result is None:
+        photo_result = prof_cv[0:int(ph * 0.48), :]
+
+    st.session_state.photo_cropped = photo_result
+    st.session_state.qr_cropped    = qr_result
 
     pc1, pc2 = st.columns(2)
     with pc1:
         st.markdown("**✂️ ፎቶ (Front ID ይሄዳል)**")
-        st.image(cv2.cvtColor(photo_part, cv2.COLOR_BGR2RGB), use_container_width=True)
+        st.image(cv2.cvtColor(photo_result, cv2.COLOR_BGR2RGB), use_container_width=True)
     with pc2:
         st.markdown("**✂️ QR Code (Back ID ይሄዳል)**")
-        st.image(cv2.cvtColor(qr_part, cv2.COLOR_BGR2RGB), use_container_width=True)
+        st.image(cv2.cvtColor(qr_result, cv2.COLOR_BGR2RGB), use_container_width=True)
     st.divider()
 tab_front, tab_back = st.tabs(["🔵 Front Settings", "🟠 Back Settings"])
 
@@ -533,7 +606,9 @@ with tab_front:
                     st.session_state.size['fan_bc'] = int(vh)
                 with bc_c4:
                     st.caption("ስፋት (Width)")
-                    vw = st.number_input("", key="fan_bc_w", label_visibility="collapsed", step=1, min_value=50)
+                    if "inp_fan_bc_w" not in st.session_state:
+                        st.session_state["inp_fan_bc_w"] = DEFAULT_SETTINGS['pos']['fan_bc_w']
+                    vw = st.number_input("", key="inp_fan_bc_w", label_visibility="collapsed", step=1, min_value=50)
                     st.session_state.pos['fan_bc_w'] = int(vw)
             else:
                 col0, col1, col2, col3 = st.columns([2, 1, 1, 1])
@@ -577,7 +652,7 @@ with tab_front:
                     st.session_state[f"fx_{fk}"] = DEFAULT_SETTINGS['pos'][f"{fk}_x"]
                     st.session_state[f"fy_{fk}"] = DEFAULT_SETTINGS['pos'][f"{fk}_y"]
                     st.session_state[f"fs_{fk}"] = DEFAULT_SETTINGS['size'][fk]
-                st.session_state["fan_bc_w"] = DEFAULT_SETTINGS['pos']['fan_bc_w']
+                st.session_state["inp_fan_bc_w"] = DEFAULT_SETTINGS['pos']['fan_bc_w']
                 st.rerun()
         with col_r2:
             if st.button("💾 አሁን Save (Firebase)", use_container_width=True, key="save_front"):
