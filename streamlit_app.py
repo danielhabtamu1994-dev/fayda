@@ -415,31 +415,54 @@ if uploaded_profile:
             else:
                 photo_crop = card_bgr[:ch//2, :]
 
-            # ── Background removal — GrabCut → PNG transparent ──────
+            # ── Background removal — FloodFill from sample points ──
             ph2, pw2 = photo_crop.shape[:2]
-            mask_gc   = np.zeros((ph2, pw2), np.uint8)
-            # rect — ጠርዝ ትንሽ ብቻ ይቁረጥ (ትከሻ ሙሉ ይያዛል)
-            rect      = (int(pw2*0.02), int(ph2*0.02), int(pw2*0.96), int(ph2*0.96))
-            bgd_model = np.zeros((1, 65), np.float64)
-            fgd_model = np.zeros((1, 65), np.float64)
             try:
-                cv2.grabCut(photo_crop, mask_gc, rect, bgd_model, fgd_model, 8, cv2.GC_INIT_WITH_RECT)
-                fg_mask = np.where((mask_gc==2)|(mask_gc==0), 0, 255).astype(np.uint8)
+                # BGRA canvas ይዘጋጃል
+                bgra = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2BGRA)
 
-                # ── Black & White grayscale ──────────────────────
+                # Sample points: top-left, top-right, middle-left, middle-right
+                sample_points = [
+                    (5, 5),               # top-left
+                    (pw2-6, 5),           # top-right
+                    (5, ph2//2),          # middle-left
+                    (pw2-6, ph2//2),      # middle-right
+                ]
+
+                # FloodFill mask (2px ትልቅ ከ image)
+                flood_mask = np.zeros((ph2+2, pw2+2), np.uint8)
+                # BGR copy ለ floodfill
+                bgr_work = photo_crop.copy()
+
+                tolerance = 30  # ቀለም tolerance
+
+                for (sx, sy) in sample_points:
+                    seed_color = bgr_work[sy, sx].tolist()
+                    cv2.floodFill(
+                        bgr_work, flood_mask,
+                        seedPoint=(sx, sy),
+                        newVal=(255, 255, 255),
+                        loDiff=(tolerance, tolerance, tolerance, 0),
+                        upDiff=(tolerance, tolerance, tolerance, 0),
+                        flags=cv2.FLOODFILL_MASK_ONLY | (255 << 8)
+                    )
+
+                # flood_mask[1:-1, 1:-1] = background pixels
+                bg_mask = flood_mask[1:-1, 1:-1]
+
+                # ── Black & White ──────────────────────────────────
                 gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
                 bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
 
-                # ── BGRA — background transparent ──────────────
+                # ── BGRA — background → transparent ───────────────
                 bgra = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
-                bgra[:, :, 3] = fg_mask          # alpha = 0 ለ background
+                bgra[:, :, 3] = np.where(bg_mask == 255, 0, 255).astype(np.uint8)
                 return bgra
+
             except Exception:
-                # fallback — BW + transparent
                 gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
                 bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
                 bgra       = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
-                # ነጭ ቦታ transparent ያደርጋል
                 white_mask = np.all(bgra[:,:,:3] > 240, axis=2)
                 bgra[white_mask, 3] = 0
                 return bgra
