@@ -10,6 +10,15 @@ import json
 import barcode
 from barcode.writer import ImageWriter
 
+# ── rembg — cached session (u2netp small ~4MB) ─────────────────
+@st.cache_resource(show_spinner=False)
+def get_rembg_session():
+    try:
+        from rembg import new_session
+        return new_session("u2netp")
+    except Exception:
+        return None
+
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
 BG_PATH      = "20260319_215211.jpg"
@@ -420,28 +429,27 @@ if uploaded_profile:
             ph2, pw2 = photo_crop.shape[:2]
             photo_crop = photo_crop[trim:ph2-trim, trim:pw2-trim]
 
-            # ── Background removal — rembg (AI) → BW → transparent ──
+            # ── Background removal — rembg u2netp → BW → transparent ─
             ph2, pw2 = photo_crop.shape[:2]
-            try:
-                from rembg import remove as rembg_remove
-                # BGR → PIL RGB
-                pil_photo = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB))
-                # rembg — background ያስወግዳል → RGBA PNG
-                pil_nobg  = rembg_remove(pil_photo)
-                # ── Black & White ──────────────────────────────────
-                r, g, b, a = pil_nobg.split()
-                gray       = pil_nobg.convert('L')           # grayscale
-                bw_rgba    = Image.merge('RGBA', (gray, gray, gray, a))
-                # ── BGRA ለ OpenCV ──────────────────────────────────
-                bgra = cv2.cvtColor(np.array(bw_rgba), cv2.COLOR_RGBA2BGRA)
-                return bgra
-            except Exception as e:
-                # fallback — BW ብቻ (transparent የለም)
-                gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-                bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
-                bgra       = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
-                bgra[:, :, 3] = 255
-                return bgra
+            rembg_session = get_rembg_session()
+            if rembg_session is not None:
+                try:
+                    from rembg import remove as rembg_remove
+                    pil_photo = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB))
+                    pil_nobg  = rembg_remove(pil_photo, session=rembg_session)
+                    r, g, b, a = pil_nobg.split()
+                    gray    = pil_nobg.convert('L')
+                    bw_rgba = Image.merge('RGBA', (gray, gray, gray, a))
+                    bgra    = cv2.cvtColor(np.array(bw_rgba), cv2.COLOR_RGBA2BGRA)
+                    return bgra
+                except Exception:
+                    pass
+            # fallback — BW ብቻ
+            gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
+            bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
+            bgra       = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
+            bgra[:, :, 3] = 255
+            return bgra
 
         def find_qr_in_card(card_bgr, margin=18):
             gray_c  = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2GRAY)
