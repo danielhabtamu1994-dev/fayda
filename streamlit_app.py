@@ -85,6 +85,7 @@ DEFAULT_SETTINGS = {
         'exp_x': 710, 'exp_y': 555,
         'fan_x': 575, 'fan_y': 648,
         'fan_bc_x': 575, 'fan_bc_y': 600,
+        'fan_bc_w': 300,   # barcode width in px
     },
     'size': {
         'amh': 32, 'eng': 32,
@@ -484,18 +485,41 @@ with tab_front:
         hdr_c3.markdown("**Size**")
 
         for fk, label in field_labels.items():
-            col0, col1, col2, col3 = st.columns([2, 1, 1, 1])
-            with col0:
+            if fk == 'fan_bc':
+                # Barcode — X, Y, ቁመት (Height), ስፋት (Width)
+                if "fan_bc_w" not in st.session_state:
+                    st.session_state["fan_bc_w"] = DEFAULT_SETTINGS['pos']['fan_bc_w']
                 st.markdown(f"**{label}**")
-            with col1:
-                vx = st.number_input("", key=f"fx_{fk}", label_visibility="collapsed", step=1)
-                st.session_state.pos[f"{fk}_x"] = int(vx)
-            with col2:
-                vy = st.number_input("", key=f"fy_{fk}", label_visibility="collapsed", step=1)
-                st.session_state.pos[f"{fk}_y"] = int(vy)
-            with col3:
-                vs = st.number_input("", key=f"fs_{fk}", label_visibility="collapsed", step=1, min_value=1)
-                st.session_state.size[fk] = int(vs)
+                bc_c1, bc_c2, bc_c3, bc_c4 = st.columns(4)
+                with bc_c1:
+                    st.caption("X")
+                    vx = st.number_input("", key="fx_fan_bc", label_visibility="collapsed", step=1)
+                    st.session_state.pos['fan_bc_x'] = int(vx)
+                with bc_c2:
+                    st.caption("Y")
+                    vy = st.number_input("", key="fy_fan_bc", label_visibility="collapsed", step=1)
+                    st.session_state.pos['fan_bc_y'] = int(vy)
+                with bc_c3:
+                    st.caption("ቁመት (Height)")
+                    vh = st.number_input("", key="fs_fan_bc", label_visibility="collapsed", step=1, min_value=10)
+                    st.session_state.size['fan_bc'] = int(vh)
+                with bc_c4:
+                    st.caption("ስፋት (Width)")
+                    vw = st.number_input("", key="fan_bc_w", label_visibility="collapsed", step=1, min_value=50)
+                    st.session_state.pos['fan_bc_w'] = int(vw)
+            else:
+                col0, col1, col2, col3 = st.columns([2, 1, 1, 1])
+                with col0:
+                    st.markdown(f"**{label}**")
+                with col1:
+                    vx = st.number_input("", key=f"fx_{fk}", label_visibility="collapsed", step=1)
+                    st.session_state.pos[f"{fk}_x"] = int(vx)
+                with col2:
+                    vy = st.number_input("", key=f"fy_{fk}", label_visibility="collapsed", step=1)
+                    st.session_state.pos[f"{fk}_y"] = int(vy)
+                with col3:
+                    vs = st.number_input("", key=f"fs_{fk}", label_visibility="collapsed", step=1, min_value=1)
+                    st.session_state.size[fk] = int(vs)
 
         col_r1, col_r2 = st.columns(2)
         with col_r1:
@@ -506,6 +530,7 @@ with tab_front:
                     st.session_state[f"fx_{fk}"] = DEFAULT_SETTINGS['pos'][f"{fk}_x"]
                     st.session_state[f"fy_{fk}"] = DEFAULT_SETTINGS['pos'][f"{fk}_y"]
                     st.session_state[f"fs_{fk}"] = DEFAULT_SETTINGS['size'][fk]
+                st.session_state["fan_bc_w"] = DEFAULT_SETTINGS['pos']['fan_bc_w']
                 st.rerun()
         with col_r2:
             if st.button("💾 አሁን Save (Firebase)", use_container_width=True, key="save_front"):
@@ -554,8 +579,11 @@ with tab_front:
 
                     # FAN Barcode
                     if fan_digits_gen:
-                        bc_img = generate_barcode_image(fan_digits_gen, height_px=int(sz['fan_bc']))
+                        bc_h = int(sz['fan_bc'])
+                        bc_w = int(p.get('fan_bc_w', 300))
+                        bc_img = generate_barcode_image(fan_digits_gen, height_px=bc_h)
                         if bc_img:
+                            bc_img = bc_img.resize((bc_w, bc_h), Image.LANCZOS)
                             bg.paste(bc_img, (int(p['fan_bc_x']), int(p['fan_bc_y'])))
 
                     # Photo — background size ላይ ተመስርቶ ይቀምጣል
