@@ -9,7 +9,6 @@ import requests
 import json
 import barcode
 from barcode.writer import ImageWriter
-from rembg import remove as rembg_remove
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
@@ -424,6 +423,7 @@ if uploaded_profile:
             # ── Background removal — rembg (AI) → BW → transparent ──
             ph2, pw2 = photo_crop.shape[:2]
             try:
+                from rembg import remove as rembg_remove
                 # BGR → PIL RGB
                 pil_photo = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB))
                 # rembg — background ያስወግዳል → RGBA PNG
