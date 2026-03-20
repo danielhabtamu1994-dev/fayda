@@ -402,13 +402,11 @@ if uploaded_profile:
 
     # ══ ፎቶ — 4-ማዕዘን ትልቅ contour ፈልጎ white border ይቁረጥ ══
     def find_rect_photo(img_bgr):
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-        # ፎቶ ክፍል ላይ focus — ምስሉ ላይ ሶስት አምሳያ ይኖራሉ (ክብ + ትልቅ ፎቶ + ትንሽ)
-        # ትልቁ 4-ማዕዘን contour ፈልጎ ያወጣ
-        blurred = cv2.GaussianBlur(gray, (5,5), 0)
+        gray    = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges   = cv2.Canny(blurred, 30, 100)
         cnts, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        best = None
+        best      = None
         best_area = 0
         img_area  = img_bgr.shape[0] * img_bgr.shape[1]
         for c in cnts:
@@ -418,7 +416,6 @@ if uploaded_profile:
                 x, y, w, h = cv2.boundingRect(approx)
                 area = w * h
                 ar   = w / float(h)
-                # ጠቅላላ ምስሉ ሳይሆን ክፍሉ — 5%–60% area, portrait shape
                 if 0.05 * img_area < area < 0.65 * img_area and 0.5 < ar < 1.0:
                     if area > best_area:
                         best_area = area
@@ -427,14 +424,41 @@ if uploaded_profile:
             return None
         x, y, w, h = best
         crop = img_bgr[y:y+h, x:x+w]
-        # White border ያስወግዳል
+
+        # White border — 4 ጎን ሁሉ ያስወግዳል
+        # ነጭ ምንድን ነው: row/column አማካኝ brightness > 230
         gray_c = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray_c, 240, 255, cv2.THRESH_BINARY_INV)
-        coords  = cv2.findNonZero(mask)
-        if coords is not None:
-            rx, ry, rw, rh = cv2.boundingRect(coords)
-            crop = crop[ry:ry+rh, rx:rx+rw]
-        return crop
+        thresh = 230
+
+        # ላይ — ነጭ rows ይዝለሉ
+        top = 0
+        for i in range(gray_c.shape[0]):
+            if np.mean(gray_c[i, :]) < thresh:
+                top = i
+                break
+
+        # ታች — ከ ታች ወደ ላይ ነጭ rows ይዝለሉ
+        bottom = gray_c.shape[0]
+        for i in range(gray_c.shape[0] - 1, -1, -1):
+            if np.mean(gray_c[i, :]) < thresh:
+                bottom = i + 1
+                break
+
+        # ግራ — ነጭ columns ይዝለሉ
+        left = 0
+        for j in range(gray_c.shape[1]):
+            if np.mean(gray_c[:, j]) < thresh:
+                left = j
+                break
+
+        # ቀኝ — ከ ቀኝ ወደ ግራ ነጭ columns ይዝለሉ
+        right = gray_c.shape[1]
+        for j in range(gray_c.shape[1] - 1, -1, -1):
+            if np.mean(gray_c[:, j]) < thresh:
+                right = j + 1
+                break
+
+        return crop[top:bottom, left:right]
 
     qr_result    = find_qr_region(prof_cv)
     photo_result = find_rect_photo(prof_cv)
