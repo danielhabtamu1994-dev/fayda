@@ -98,13 +98,14 @@ DEFAULT_SETTINGS_BACK = {
         'zone_amh_x': 620, 'zone_amh_y': 380,
         'zone_eng_x': 620, 'zone_eng_y': 420,
         'woreda_amh_x': 620, 'woreda_amh_y': 460,
+        'woreda_amh_num_x': 750, 'woreda_amh_num_y': 460,  # ቁጥር ለብቻ
         'woreda_eng_x': 620, 'woreda_eng_y': 500,
     },
     'size': {
         'phone': 28, 'fin': 28,
         'addr_amh': 28, 'addr_eng': 28,
         'zone_amh': 28, 'zone_eng': 28,
-        'woreda_amh': 28, 'woreda_eng': 28,
+        'woreda_amh': 28, 'woreda_amh_num': 28, 'woreda_eng': 28,
     }
 }
 
@@ -263,7 +264,7 @@ with st.container():
                     st.session_state[f"fx_{fk}"] = st.session_state.pos[f"{fk}_x"]
                     st.session_state[f"fy_{fk}"] = st.session_state.pos[f"{fk}_y"]
                     st.session_state[f"fs_{fk}"] = st.session_state.size[fk]
-                for fk in ['phone','fin','addr_amh','addr_eng','zone_amh','zone_eng','woreda_amh','woreda_eng']:
+                for fk in ['phone','fin','addr_amh','addr_eng','zone_amh','zone_eng','woreda_amh','woreda_amh_num','woreda_eng']:
                     st.session_state[f"bx_{fk}"] = st.session_state.pos_back[f"{fk}_x"]
                     st.session_state[f"by_{fk}"] = st.session_state.pos_back[f"{fk}_y"]
                     st.session_state[f"bs_{fk}"] = st.session_state.size_back[fk]
@@ -627,14 +628,15 @@ with tab_back:
         st.markdown("### 🕹️ ደረጃ 3: ቦታ እና ፊደል መጠን ማስተካከያ (Back)")
 
         field_labels_back = {
-            'phone':      '📞 ስልክ ቁጥር',
-            'fin':        '🔢 FIN',
-            'addr_amh':   '🏠 አድራሻ (አማርኛ)',
-            'addr_eng':   '🏠 አድራሻ (English)',
-            'zone_amh':   '🗺️ ዞን (አማርኛ)',
-            'zone_eng':   '🗺️ ዞን (English)',
-            'woreda_amh': '📍 ወረዳ (አማርኛ)',
-            'woreda_eng': '📍 ወረዳ (English)',
+            'phone':          '📞 ስልክ ቁጥር',
+            'fin':            '🔢 FIN',
+            'addr_amh':       '🏠 አድራሻ (አማርኛ)',
+            'addr_eng':       '🏠 አድራሻ (English)',
+            'zone_amh':       '🗺️ ዞን (አማርኛ)',
+            'zone_eng':       '🗺️ ዞን (English)',
+            'woreda_amh':     '📍 ወረዳ (አማርኛ ጽሁፍ)',
+            'woreda_amh_num': '📍 ወረዳ (ቁጥር)',
+            'woreda_eng':     '📍 ወረዳ (English)',
         }
 
         # init pos/size into individual session_state keys for number_input
@@ -670,7 +672,7 @@ with tab_back:
             if st.button("↩️ ቦታዎችን ወደ ነባሪ መልስ (Back)", use_container_width=True, key="reset_back"):
                 st.session_state.pos_back  = DEFAULT_SETTINGS_BACK['pos'].copy()
                 st.session_state.size_back = DEFAULT_SETTINGS_BACK['size'].copy()
-                for fk in ['phone','fin','addr_amh','addr_eng','zone_amh','zone_eng','woreda_amh','woreda_eng']:
+                for fk in ['phone','fin','addr_amh','addr_eng','zone_amh','zone_eng','woreda_amh','woreda_amh_num','woreda_eng']:
                     st.session_state[f"bx_{fk}"] = DEFAULT_SETTINGS_BACK['pos'][f"{fk}_x"]
                     st.session_state[f"by_{fk}"] = DEFAULT_SETTINGS_BACK['pos'][f"{fk}_y"]
                     st.session_state[f"bs_{fk}"] = DEFAULT_SETTINGS_BACK['size'][fk]
@@ -709,14 +711,26 @@ with tab_back:
                         idx = int(n) - 1
                         return lines_b[idx] if 0 <= idx < len(lines_b) else f"[{n} አልተገኘም]"
 
-                    draw_smart_text(draw_b, (p_b['phone_x'],      p_b['phone_y']),      safe_line_b(phone_n_b),     sz_b['phone'],      sz_b['phone'],      tc)
-                    draw_smart_text(draw_b, (p_b['fin_x'],        p_b['fin_y']),        safe_line_b(fin_n_b),       sz_b['fin'],        sz_b['fin'],        tc)
-                    draw_smart_text(draw_b, (p_b['addr_amh_x'],   p_b['addr_amh_y']),   safe_line_b(addr_amh_n_b),  sz_b['addr_amh'],   sz_b['addr_amh'],   tc)
-                    draw_smart_text(draw_b, (p_b['addr_eng_x'],   p_b['addr_eng_y']),   safe_line_b(addr_eng_n_b),  sz_b['addr_eng'],   sz_b['addr_eng'],   tc)
-                    draw_smart_text(draw_b, (p_b['zone_amh_x'],   p_b['zone_amh_y']),   safe_line_b(zone_amh_n_b),  sz_b['zone_amh'],   sz_b['zone_amh'],   tc)
-                    draw_smart_text(draw_b, (p_b['zone_eng_x'],   p_b['zone_eng_y']),   safe_line_b(zone_eng_n_b),  sz_b['zone_eng'],   sz_b['zone_eng'],   tc)
-                    draw_smart_text(draw_b, (p_b['woreda_amh_x'], p_b['woreda_amh_y']), safe_line_b(woreda_amh_n_b),sz_b['woreda_amh'], sz_b['woreda_amh'], tc)
-                    draw_smart_text(draw_b, (p_b['woreda_eng_x'], p_b['woreda_eng_y']), safe_line_b(woreda_eng_n_b),sz_b['woreda_eng'], sz_b['woreda_eng'], tc)
+                    # FIN — ቁጥሮች ብቻ
+                    fin_raw    = safe_line_b(fin_n_b)
+                    fin_digits = ''.join(c for c in fin_raw if c.isdigit())
+
+                    # ወረዳ አማርኛ — ጽሁፍ ለብቻ (non-digit) ቁጥር ለብቻ (digit)
+                    woreda_raw     = safe_line_b(woreda_amh_n_b)
+                    woreda_text    = ''.join(c for c in woreda_raw if not c.isdigit()).strip()
+                    woreda_numpart = ''.join(c for c in woreda_raw if c.isdigit()).strip()
+
+                    draw_smart_text(draw_b, (p_b['phone_x'],          p_b['phone_y']),          safe_line_b(phone_n_b),    sz_b['phone'],          sz_b['phone'],          tc)
+                    draw_smart_text(draw_b, (p_b['fin_x'],            p_b['fin_y']),            fin_digits,                sz_b['fin'],            sz_b['fin'],            tc)
+                    draw_smart_text(draw_b, (p_b['addr_amh_x'],       p_b['addr_amh_y']),       safe_line_b(addr_amh_n_b), sz_b['addr_amh'],       sz_b['addr_amh'],       tc)
+                    draw_smart_text(draw_b, (p_b['addr_eng_x'],       p_b['addr_eng_y']),       safe_line_b(addr_eng_n_b), sz_b['addr_eng'],       sz_b['addr_eng'],       tc)
+                    draw_smart_text(draw_b, (p_b['zone_amh_x'],       p_b['zone_amh_y']),       safe_line_b(zone_amh_n_b), sz_b['zone_amh'],       sz_b['zone_amh'],       tc)
+                    draw_smart_text(draw_b, (p_b['zone_eng_x'],       p_b['zone_eng_y']),       safe_line_b(zone_eng_n_b), sz_b['zone_eng'],       sz_b['zone_eng'],       tc)
+                    # ወረዳ አማርኛ ጽሁፍ ለብቻ
+                    draw_smart_text(draw_b, (p_b['woreda_amh_x'],     p_b['woreda_amh_y']),     woreda_text,               sz_b['woreda_amh'],     sz_b['woreda_amh'],     tc)
+                    # ወረዳ ቁጥር ለብቻ
+                    draw_smart_text(draw_b, (p_b['woreda_amh_num_x'], p_b['woreda_amh_num_y']), woreda_numpart,            sz_b['woreda_amh_num'], sz_b['woreda_amh_num'], tc)
+                    draw_smart_text(draw_b, (p_b['woreda_eng_x'],     p_b['woreda_eng_y']),     safe_line_b(woreda_eng_n_b),sz_b['woreda_eng'],   sz_b['woreda_eng'],     tc)
 
                     st.image(bg_back, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Back)", use_container_width=True)
 
