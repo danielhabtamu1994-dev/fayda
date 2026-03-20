@@ -10,7 +10,7 @@ import json
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
-BG_PATH      = "id_front_215211.jpg"
+BG_PATH      = "20260319_215211.jpg"
 BG_PATH_BACK = "20260319_211337.jpg"
 FIREBASE_URL = "https://fayda-b365f-default-rtdb.firebaseio.com/settings.json"
 
@@ -91,15 +91,20 @@ DEFAULT_SETTINGS = {
 # Defaults — Back
 DEFAULT_SETTINGS_BACK = {
     'pos': {
-        'amh_x': 620, 'amh_y': 235,
-        'eng_x': 620, 'eng_y': 268,
-        'dob_x': 700, 'dob_y': 390,
-        'sex_x': 620, 'sex_y': 470,
-        'exp_x': 710, 'exp_y': 555,
+        'phone_x': 620,  'phone_y': 200,
+        'fin_x':   620,  'fin_y':   250,
+        'addr_amh_x': 620, 'addr_amh_y': 300,
+        'addr_eng_x': 620, 'addr_eng_y': 340,
+        'zone_amh_x': 620, 'zone_amh_y': 380,
+        'zone_eng_x': 620, 'zone_eng_y': 420,
+        'woreda_amh_x': 620, 'woreda_amh_y': 460,
+        'woreda_eng_x': 620, 'woreda_eng_y': 500,
     },
     'size': {
-        'amh': 32, 'eng': 32,
-        'dob': 28, 'sex': 28, 'exp': 28,
+        'phone': 28, 'fin': 28,
+        'addr_amh': 28, 'addr_eng': 28,
+        'zone_amh': 28, 'zone_eng': 28,
+        'woreda_amh': 28, 'woreda_eng': 28,
     }
 }
 
@@ -148,7 +153,7 @@ if not st.session_state.firebase_loaded:
     st.session_state.firebase_loaded = True
 
 # ══════════════════════════════════════════════════════════════════
-# Auto-detection
+# Auto-detection — Front
 # ══════════════════════════════════════════════════════════════════
 def auto_detect_fields(lines):
     LABEL_KEYWORDS = {
@@ -169,6 +174,57 @@ def auto_detect_fields(lines):
                     if nxt <= len(lines):
                         found[field] = nxt
                     break
+    return found
+
+# ══════════════════════════════════════════════════════════════════
+# Auto-detection — Back
+# Rules:
+#   - 10-digit number  → phone
+#   - 12-digit number  → FIN
+#   - 'address' keyword → next line=skip(label), +2=addr_amh, +3=addr_eng,
+#                         +4=zone_amh, +5=zone_eng, +6=woreda_amh, +7=woreda_eng
+# ══════════════════════════════════════════════════════════════════
+def auto_detect_fields_back(lines):
+    found = {}
+    addr_anchor = None  # line index (0-based) where 'address' label found
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        ll       = stripped.lower()
+
+        # ── Phone: 10-digit number ──────────────────────────────
+        if 'phone' not in found:
+            digits = ''.join(c for c in stripped if c.isdigit())
+            if len(digits) == 10:
+                found['phone'] = i + 1   # 1-based index
+
+        # ── FIN: 12-digit number ────────────────────────────────
+        if 'fin' not in found:
+            digits = ''.join(c for c in stripped if c.isdigit())
+            if len(digits) == 12:
+                found['fin'] = i + 1
+
+        # ── Address anchor ──────────────────────────────────────
+        if addr_anchor is None:
+            if 'address' in ll or 'አድራሻ' in stripped:
+                addr_anchor = i
+
+    # Derive address fields from anchor
+    if addr_anchor is not None:
+        base = addr_anchor  # 0-based
+        # layout: label(base), skip(base+1), addr_amh(base+2), addr_eng(base+3),
+        #         zone_amh(base+4), zone_eng(base+5), woreda_amh(base+6), woreda_eng(base+7)
+        def safe_idx(offset):
+            idx = base + offset
+            return idx + 1 if idx < len(lines) else None  # convert to 1-based
+
+        found['addr_amh']    = safe_idx(2)
+        found['addr_eng']    = safe_idx(3)
+        found['zone_amh']    = safe_idx(4)
+        found['zone_eng']    = safe_idx(5)
+        found['woreda_amh']  = safe_idx(6)
+        found['woreda_eng']  = safe_idx(7)
+
     return found
 
 # ══════════════════════════════════════════════════════════════════
@@ -207,6 +263,7 @@ with st.container():
                     st.session_state[f"fx_{fk}"] = st.session_state.pos[f"{fk}_x"]
                     st.session_state[f"fy_{fk}"] = st.session_state.pos[f"{fk}_y"]
                     st.session_state[f"fs_{fk}"] = st.session_state.size[fk]
+                for fk in ['phone','fin','addr_amh','addr_eng','zone_amh','zone_eng','woreda_amh','woreda_eng']:
                     st.session_state[f"bx_{fk}"] = st.session_state.pos_back[f"{fk}_x"]
                     st.session_state[f"by_{fk}"] = st.session_state.pos_back[f"{fk}_y"]
                     st.session_state[f"bs_{fk}"] = st.session_state.size_back[fk]
@@ -479,18 +536,28 @@ with tab_back:
                     full_text_b = pytesseract.image_to_string(gray_b, lang='amh+eng')
                     lines_b     = [l.strip() for l in full_text_b.split('\n') if len(l.strip()) > 1]
                     st.session_state.ocr_lines_back    = lines_b
-                    st.session_state.auto_detected_back = auto_detect_fields(lines_b)
+                    st.session_state.auto_detected_back = auto_detect_fields_back(lines_b)
 
             if st.session_state.get('ocr_lines_back'):
                 lines_b    = st.session_state.ocr_lines_back
                 detected_b = st.session_state.auto_detected_back
-                tag_map_b  = {'full_name':'← ስም','date_birth':'← ልደት ቀን','sex':'← ፆታ','date_expiry':'← ቀን ማብቂያ'}
+                tag_map_b  = {
+                    'phone':      '← ስልክ ቁጥር',
+                    'fin':        '← FIN',
+                    'addr_amh':   '← አድራሻ (አማርኛ)',
+                    'addr_eng':   '← አድራሻ (English)',
+                    'zone_amh':   '← ዞን (አማርኛ)',
+                    'zone_eng':   '← ዞን (English)',
+                    'woreda_amh': '← ወረዳ (አማርኛ)',
+                    'woreda_eng': '← ወረዳ (English)',
+                }
                 rows_b = [{"ቁጥር": i+1, "ጽሁፍ": l,
                            "": next((tag_map_b[f] for f,idx in detected_b.items() if idx==i+1), "")}
                           for i, l in enumerate(lines_b)]
                 st.dataframe(pd.DataFrame(rows_b), use_container_width=True, hide_index=True)
+                n_found = sum(1 for v in detected_b.values() if v is not None)
                 if detected_b:
-                    st.success(f"✅ Auto-detection ተሳካ: {len(detected_b)}/4 fields")
+                    st.success(f"✅ Auto-detection ተሳካ: {n_found}/8 fields")
                 else:
                     st.warning("⚠️ Auto-detection አልተሳካም — ቁጥሮቹን በራስዎ ይምረጡ")
 
@@ -499,31 +566,42 @@ with tab_back:
         # ── ደረጃ 2: Field Numbers ──────────────────────────────────
         with st.expander("🔢 ደረጃ 2: የጽሁፍ ቁጥሮች (Back)", expanded=True):
             detected_b = st.session_state.get('auto_detected_back', {})
-            fn_idx_b = detected_b.get('full_name', None)
 
-            # Auto-detect ሲሳካ session_state field indices ያዘምናል
+            def _b(key, default):
+                v = detected_b.get(key, None)
+                return int(v) if v else default
+
+            # Auto-detect ሲሳካ session_state keys ያዘምናል
             if detected_b:
-                if 'b_amh_n' not in st.session_state or st.session_state.get('b_last_detected') != detected_b:
-                    st.session_state.b_amh_n = int(fn_idx_b) if fn_idx_b else 5
-                    st.session_state.b_eng_n = int(fn_idx_b)+1 if fn_idx_b else 6
-                    st.session_state.b_dob_n = int(detected_b.get('date_birth', 8))
-                    st.session_state.b_sex_n = int(detected_b.get('sex', 10))
-                    st.session_state.b_exp_n = int(detected_b.get('date_expiry', 12))
+                if st.session_state.get('b_last_detected') != detected_b:
+                    st.session_state.b_phone_n      = _b('phone',      3)
+                    st.session_state.b_fin_n        = _b('fin',        5)
+                    st.session_state.b_addr_amh_n   = _b('addr_amh',   7)
+                    st.session_state.b_addr_eng_n   = _b('addr_eng',   8)
+                    st.session_state.b_zone_amh_n   = _b('zone_amh',   9)
+                    st.session_state.b_zone_eng_n   = _b('zone_eng',  10)
+                    st.session_state.b_woreda_amh_n = _b('woreda_amh',11)
+                    st.session_state.b_woreda_eng_n = _b('woreda_eng',12)
                     st.session_state.b_last_detected = detected_b
             else:
-                for k, v in [('b_amh_n',5),('b_eng_n',6),('b_dob_n',8),('b_sex_n',10),('b_exp_n',12)]:
+                for k, v in [('b_phone_n',3),('b_fin_n',5),('b_addr_amh_n',7),('b_addr_eng_n',8),
+                             ('b_zone_amh_n',9),('b_zone_eng_n',10),('b_woreda_amh_n',11),('b_woreda_eng_n',12)]:
                     if k not in st.session_state:
                         st.session_state[k] = v
 
-            bc1, bc2, bc3 = st.columns(3)
+            bc1, bc2, bc3, bc4 = st.columns(4)
             with bc1:
-                amh_n_b = st.number_input("አማርኛ ስም ቁጥር:",    min_value=1, key="b_amh_n")
-                eng_n_b = st.number_input("እንግሊዝኛ ስም ቁጥር:",  min_value=1, key="b_eng_n")
+                phone_n_b     = st.number_input("📞 ስልክ ቁጥር:",       min_value=1, key="b_phone_n")
+                fin_n_b       = st.number_input("🔢 FIN:",             min_value=1, key="b_fin_n")
             with bc2:
-                dob_n_b = st.number_input("የትውልድ ቀን ቁጥር:",   min_value=1, key="b_dob_n")
-                sex_n_b = st.number_input("ፆታ ቁጥር:",          min_value=1, key="b_sex_n")
+                addr_amh_n_b  = st.number_input("🏠 አድራሻ (አማርኛ):",  min_value=1, key="b_addr_amh_n")
+                addr_eng_n_b  = st.number_input("🏠 አድራሻ (English):", min_value=1, key="b_addr_eng_n")
             with bc3:
-                exp_n_b = st.number_input("የሚያበቃበት ቀን ቁጥር:", min_value=1, key="b_exp_n")
+                zone_amh_n_b  = st.number_input("🗺️ ዞን (አማርኛ):",    min_value=1, key="b_zone_amh_n")
+                zone_eng_n_b  = st.number_input("🗺️ ዞን (English):",   min_value=1, key="b_zone_eng_n")
+            with bc4:
+                woreda_amh_n_b = st.number_input("📍 ወረዳ (አማርኛ):",   min_value=1, key="b_woreda_amh_n")
+                woreda_eng_n_b = st.number_input("📍 ወረዳ (English):",  min_value=1, key="b_woreda_eng_n")
 
             if st.session_state.get('ocr_lines_back'):
                 lines_b = st.session_state.ocr_lines_back
@@ -531,8 +609,16 @@ with tab_back:
                     idx = int(n)-1
                     return lines_b[idx] if 0 <= idx < len(lines_b) else "—"
                 st.markdown("**ቅድመ ዕይታ:**")
-                for lbl, n in [("አማርኛ ስም", amh_n_b),("እንግሊዝኛ ስም", eng_n_b),
-                               ("የትውልድ ቀን", dob_n_b),("ፆታ", sex_n_b),("ቀን ማብቂያ", exp_n_b)]:
+                for lbl, n in [
+                    ("ስልክ ቁጥር",       phone_n_b),
+                    ("FIN",            fin_n_b),
+                    ("አድራሻ (አማርኛ)",  addr_amh_n_b),
+                    ("አድራሻ (English)", addr_eng_n_b),
+                    ("ዞን (አማርኛ)",    zone_amh_n_b),
+                    ("ዞን (English)",   zone_eng_n_b),
+                    ("ወረዳ (አማርኛ)",   woreda_amh_n_b),
+                    ("ወረዳ (English)",  woreda_eng_n_b),
+                ]:
                     st.markdown(f"- **{lbl}:** `{pv_b(n)}`")
 
         st.divider()
@@ -541,11 +627,14 @@ with tab_back:
         st.markdown("### 🕹️ ደረጃ 3: ቦታ እና ፊደል መጠን ማስተካከያ (Back)")
 
         field_labels_back = {
-            'amh': 'አማርኛ ስም',
-            'eng': 'እንግሊዝኛ ስም',
-            'dob': 'የትውልድ ቀን',
-            'sex': 'ፆታ',
-            'exp': 'ቀን ማብቂያ',
+            'phone':      '📞 ስልክ ቁጥር',
+            'fin':        '🔢 FIN',
+            'addr_amh':   '🏠 አድራሻ (አማርኛ)',
+            'addr_eng':   '🏠 አድራሻ (English)',
+            'zone_amh':   '🗺️ ዞን (አማርኛ)',
+            'zone_eng':   '🗺️ ዞን (English)',
+            'woreda_amh': '📍 ወረዳ (አማርኛ)',
+            'woreda_eng': '📍 ወረዳ (English)',
         }
 
         # init pos/size into individual session_state keys for number_input
@@ -581,7 +670,7 @@ with tab_back:
             if st.button("↩️ ቦታዎችን ወደ ነባሪ መልስ (Back)", use_container_width=True, key="reset_back"):
                 st.session_state.pos_back  = DEFAULT_SETTINGS_BACK['pos'].copy()
                 st.session_state.size_back = DEFAULT_SETTINGS_BACK['size'].copy()
-                for fk in ['amh','eng','dob','sex','exp']:
+                for fk in ['phone','fin','addr_amh','addr_eng','zone_amh','zone_eng','woreda_amh','woreda_eng']:
                     st.session_state[f"bx_{fk}"] = DEFAULT_SETTINGS_BACK['pos'][f"{fk}_x"]
                     st.session_state[f"by_{fk}"] = DEFAULT_SETTINGS_BACK['pos'][f"{fk}_y"]
                     st.session_state[f"bs_{fk}"] = DEFAULT_SETTINGS_BACK['size'][fk]
@@ -620,11 +709,14 @@ with tab_back:
                         idx = int(n) - 1
                         return lines_b[idx] if 0 <= idx < len(lines_b) else f"[{n} አልተገኘም]"
 
-                    draw_smart_text(draw_b, (p_b['amh_x'], p_b['amh_y']), safe_line_b(amh_n_b), sz_b['amh'], sz_b['amh'], tc)
-                    draw_smart_text(draw_b, (p_b['eng_x'], p_b['eng_y']), safe_line_b(eng_n_b), sz_b['eng'], sz_b['eng'], tc)
-                    draw_smart_text(draw_b, (p_b['dob_x'], p_b['dob_y']), safe_line_b(dob_n_b), sz_b['dob'], sz_b['dob'], tc)
-                    draw_smart_text(draw_b, (p_b['sex_x'], p_b['sex_y']), safe_line_b(sex_n_b), sz_b['sex'], sz_b['sex'], tc)
-                    draw_smart_text(draw_b, (p_b['exp_x'], p_b['exp_y']), safe_line_b(exp_n_b), sz_b['exp'], sz_b['exp'], tc)
+                    draw_smart_text(draw_b, (p_b['phone_x'],      p_b['phone_y']),      safe_line_b(phone_n_b),     sz_b['phone'],      sz_b['phone'],      tc)
+                    draw_smart_text(draw_b, (p_b['fin_x'],        p_b['fin_y']),        safe_line_b(fin_n_b),       sz_b['fin'],        sz_b['fin'],        tc)
+                    draw_smart_text(draw_b, (p_b['addr_amh_x'],   p_b['addr_amh_y']),   safe_line_b(addr_amh_n_b),  sz_b['addr_amh'],   sz_b['addr_amh'],   tc)
+                    draw_smart_text(draw_b, (p_b['addr_eng_x'],   p_b['addr_eng_y']),   safe_line_b(addr_eng_n_b),  sz_b['addr_eng'],   sz_b['addr_eng'],   tc)
+                    draw_smart_text(draw_b, (p_b['zone_amh_x'],   p_b['zone_amh_y']),   safe_line_b(zone_amh_n_b),  sz_b['zone_amh'],   sz_b['zone_amh'],   tc)
+                    draw_smart_text(draw_b, (p_b['zone_eng_x'],   p_b['zone_eng_y']),   safe_line_b(zone_eng_n_b),  sz_b['zone_eng'],   sz_b['zone_eng'],   tc)
+                    draw_smart_text(draw_b, (p_b['woreda_amh_x'], p_b['woreda_amh_y']), safe_line_b(woreda_amh_n_b),sz_b['woreda_amh'], sz_b['woreda_amh'], tc)
+                    draw_smart_text(draw_b, (p_b['woreda_eng_x'], p_b['woreda_eng_y']), safe_line_b(woreda_eng_n_b),sz_b['woreda_eng'], sz_b['woreda_eng'], tc)
 
                     st.image(bg_back, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Back)", use_container_width=True)
 
