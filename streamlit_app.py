@@ -286,18 +286,31 @@ with tab_front:
         # ── ደረጃ 2: Field Numbers ──────────────────────────────────
         with st.expander("🔢 ደረጃ 2: የጽሁፍ ቁጥሮች", expanded=True):
             detected = st.session_state.auto_detected
-            def det(key, default): return int(detected.get(key, default))
             fn_idx = detected.get('full_name', None)
+
+            # Auto-detect ሲሳካ session_state field indices ያዘምናል
+            if detected:
+                if 'f_amh_n' not in st.session_state or st.session_state.get('f_last_detected') != detected:
+                    st.session_state.f_amh_n = int(fn_idx) if fn_idx else 5
+                    st.session_state.f_eng_n = int(fn_idx)+1 if fn_idx else 6
+                    st.session_state.f_dob_n = int(detected.get('date_birth', 8))
+                    st.session_state.f_sex_n = int(detected.get('sex', 10))
+                    st.session_state.f_exp_n = int(detected.get('date_expiry', 12))
+                    st.session_state.f_last_detected = detected
+            else:
+                for k, v in [('f_amh_n',5),('f_eng_n',6),('f_dob_n',8),('f_sex_n',10),('f_exp_n',12)]:
+                    if k not in st.session_state:
+                        st.session_state[k] = v
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                amh_n = st.number_input("አማርኛ ስም ቁጥር:",     value=fn_idx if fn_idx else 5,               min_value=1, key="amh_n_f")
-                eng_n = st.number_input("እንግሊዝኛ ስም ቁጥር:",   value=(fn_idx+1) if fn_idx else 6,            min_value=1, key="eng_n_f")
+                amh_n = st.number_input("አማርኛ ስም ቁጥር:",     min_value=1, key="f_amh_n")
+                eng_n = st.number_input("እንግሊዝኛ ስም ቁጥር:",   min_value=1, key="f_eng_n")
             with c2:
-                dob_n = st.number_input("የትውልድ ቀን ቁጥር:",    value=det('date_birth', 8),                    min_value=1, key="dob_n_f")
-                sex_n = st.number_input("ፆታ ቁጥር:",           value=det('sex', 10),                          min_value=1, key="sex_n_f")
+                dob_n = st.number_input("የትውልድ ቀን ቁጥር:",    min_value=1, key="f_dob_n")
+                sex_n = st.number_input("ፆታ ቁጥር:",           min_value=1, key="f_sex_n")
             with c3:
-                exp_n = st.number_input("የሚያበቃበት ቀን ቁጥር:",  value=det('date_expiry', 12),                  min_value=1, key="exp_n_f")
+                exp_n = st.number_input("የሚያበቃበት ቀን ቁጥር:",  min_value=1, key="f_exp_n")
 
             if st.session_state.ocr_lines:
                 lines = st.session_state.ocr_lines
@@ -438,15 +451,25 @@ with tab_front:
                     draw_smart_text(draw, (p['sex_x'], p['sex_y']), safe_line(sex_n), sz['sex'], sz['sex'], tc)
                     draw_smart_text(draw, (p['exp_x'], p['exp_y']), safe_line(exp_n), sz['exp'], sz['exp'], tc)
 
-                    # Photo
+                    # Photo — background size ላይ ተመስርቶ ይቀምጣል
+                    bg_w, bg_h = bg.size
                     h_id, w_id = id_only.shape[:2]
-                    photo = id_only[int(h_id*0.02):int(h_id*0.40), int(w_id*0.02):int(w_id*0.55)]
-                    bg.paste(Image.fromarray(cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)).resize((190, 240)), (105, 165))
+                    photo_crop = id_only[int(h_id*0.01):int(h_id*0.55), int(w_id*0.01):int(w_id*0.48)]
+                    photo_h = int(bg_h * 0.33)
+                    photo_w = int(photo_h * 0.75)
+                    photo_x = int(bg_w * 0.03)
+                    photo_y = int(bg_h * 0.22)
+                    if photo_crop.size > 0:
+                        bg.paste(Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB)).resize((photo_w, photo_h)), (photo_x, photo_y))
 
-                    # FAN
-                    fan = id_only[int(h_id*0.82):int(h_id*0.99), int(w_id*0.05):int(w_id*0.95)]
-                    if fan.size > 0:
-                        bg.paste(Image.fromarray(cv2.cvtColor(fan, cv2.COLOR_BGR2RGB)).resize((480, 65)), (575, 648))
+                    # FAN — ታች ቀጭን ሰቀላ
+                    fan_crop = id_only[int(h_id*0.80):int(h_id*1.00), int(w_id*0.03):int(w_id*0.97)]
+                    fan_w = int(bg_w * 0.48)
+                    fan_h = int(bg_h * 0.09)
+                    fan_x = int(bg_w * 0.37)
+                    fan_y = int(bg_h * 0.88)
+                    if fan_crop.size > 0:
+                        bg.paste(Image.fromarray(cv2.cvtColor(fan_crop, cv2.COLOR_BGR2RGB)).resize((fan_w, fan_h)), (fan_x, fan_y))
 
                     st.image(bg, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Front)", use_container_width=True)
 
@@ -506,18 +529,31 @@ with tab_back:
         # ── ደረጃ 2: Field Numbers ──────────────────────────────────
         with st.expander("🔢 ደረጃ 2: የጽሁፍ ቁጥሮች (Back)", expanded=True):
             detected_b = st.session_state.get('auto_detected_back', {})
-            def det_b(key, default): return int(detected_b.get(key, default))
             fn_idx_b = detected_b.get('full_name', None)
+
+            # Auto-detect ሲሳካ session_state field indices ያዘምናል
+            if detected_b:
+                if 'b_amh_n' not in st.session_state or st.session_state.get('b_last_detected') != detected_b:
+                    st.session_state.b_amh_n = int(fn_idx_b) if fn_idx_b else 5
+                    st.session_state.b_eng_n = int(fn_idx_b)+1 if fn_idx_b else 6
+                    st.session_state.b_dob_n = int(detected_b.get('date_birth', 8))
+                    st.session_state.b_sex_n = int(detected_b.get('sex', 10))
+                    st.session_state.b_exp_n = int(detected_b.get('date_expiry', 12))
+                    st.session_state.b_last_detected = detected_b
+            else:
+                for k, v in [('b_amh_n',5),('b_eng_n',6),('b_dob_n',8),('b_sex_n',10),('b_exp_n',12)]:
+                    if k not in st.session_state:
+                        st.session_state[k] = v
 
             bc1, bc2, bc3 = st.columns(3)
             with bc1:
-                amh_n_b = st.number_input("አማርኛ ስም ቁጥር:",    value=fn_idx_b if fn_idx_b else 5,              min_value=1, key="amh_n_b")
-                eng_n_b = st.number_input("እንግሊዝኛ ስም ቁጥር:",  value=(fn_idx_b+1) if fn_idx_b else 6,          min_value=1, key="eng_n_b")
+                amh_n_b = st.number_input("አማርኛ ስም ቁጥር:",    min_value=1, key="b_amh_n")
+                eng_n_b = st.number_input("እንግሊዝኛ ስም ቁጥር:",  min_value=1, key="b_eng_n")
             with bc2:
-                dob_n_b = st.number_input("የትውልድ ቀን ቁጥር:",   value=det_b('date_birth', 8),                   min_value=1, key="dob_n_b")
-                sex_n_b = st.number_input("ፆታ ቁጥር:",          value=det_b('sex', 10),                         min_value=1, key="sex_n_b")
+                dob_n_b = st.number_input("የትውልድ ቀን ቁጥር:",   min_value=1, key="b_dob_n")
+                sex_n_b = st.number_input("ፆታ ቁጥር:",          min_value=1, key="b_sex_n")
             with bc3:
-                exp_n_b = st.number_input("የሚያበቃበት ቀን ቁጥር:", value=det_b('date_expiry', 12),                 min_value=1, key="exp_n_b")
+                exp_n_b = st.number_input("የሚያበቃበት ቀን ቁጥር:", min_value=1, key="b_exp_n")
 
             if st.session_state.get('ocr_lines_back'):
                 lines_b = st.session_state.ocr_lines_back
