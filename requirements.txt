@@ -4,4 +4,4 @@ pillow
 opencv-python-headless
 numpy
 python-barcode
-rembg
+mediapipe
