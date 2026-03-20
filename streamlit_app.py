@@ -415,25 +415,34 @@ if uploaded_profile:
             else:
                 photo_crop = card_bgr[:ch//2, :]
 
-            # ── Background removal — GrabCut ──────────────────────
+            # ── Background removal — GrabCut → PNG transparent ──────
             ph2, pw2 = photo_crop.shape[:2]
-            mask_gc  = np.zeros((ph2, pw2), np.uint8)
-            rect     = (int(pw2*0.05), int(ph2*0.05), int(pw2*0.90), int(ph2*0.90))
-            bgd_model = np.zeros((1,65), np.float64)
-            fgd_model = np.zeros((1,65), np.float64)
+            mask_gc   = np.zeros((ph2, pw2), np.uint8)
+            # rect — ጠርዝ ትንሽ ብቻ ይቁረጥ (ትከሻ ሙሉ ይያዛል)
+            rect      = (int(pw2*0.02), int(ph2*0.02), int(pw2*0.96), int(ph2*0.96))
+            bgd_model = np.zeros((1, 65), np.float64)
+            fgd_model = np.zeros((1, 65), np.float64)
             try:
-                cv2.grabCut(photo_crop, mask_gc, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
+                cv2.grabCut(photo_crop, mask_gc, rect, bgd_model, fgd_model, 8, cv2.GC_INIT_WITH_RECT)
                 fg_mask = np.where((mask_gc==2)|(mask_gc==0), 0, 255).astype(np.uint8)
-                # ── Black & White (grayscale) ──────────────────────
+
+                # ── Black & White grayscale ──────────────────────
                 gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-                bw_photo   = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
-                # background → ነጭ
-                bw_photo[fg_mask == 0] = [255, 255, 255]
-                return bw_photo
+                bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
+
+                # ── BGRA — background transparent ──────────────
+                bgra = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
+                bgra[:, :, 3] = fg_mask          # alpha = 0 ለ background
+                return bgra
             except Exception:
-                # fallback — ቀጥታ BW ብቻ
+                # fallback — BW + transparent
                 gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-                return cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
+                bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
+                bgra       = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
+                # ነጭ ቦታ transparent ያደርጋል
+                white_mask = np.all(bgra[:,:,:3] > 240, axis=2)
+                bgra[white_mask, 3] = 0
+                return bgra
 
         def find_qr_in_card(card_bgr, margin=18):
             gray_c  = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2GRAY)
@@ -474,7 +483,11 @@ if uploaded_profile:
     pc1, pc2 = st.columns(2)
     with pc1:
         st.markdown("**✂️ ፎቶ (Front ID ይሄዳል)**")
-        st.image(cv2.cvtColor(photo_result, cv2.COLOR_BGR2RGB), use_container_width=True)
+        if photo_result.shape[2] == 4:
+            # BGRA → RGBA for display
+            st.image(cv2.cvtColor(photo_result, cv2.COLOR_BGRA2RGBA), use_container_width=True)
+        else:
+            st.image(cv2.cvtColor(photo_result, cv2.COLOR_BGR2RGB), use_container_width=True)
     with pc2:
         st.markdown("**✂️ QR Code (Back ID ይሄዳል)**")
         st.image(cv2.cvtColor(qr_result, cv2.COLOR_BGR2RGB), use_container_width=True)
@@ -732,14 +745,22 @@ with tab_front:
                             bc_img = bc_img.resize((bc_w, bc_h), Image.LANCZOS)
                             bg.paste(bc_img, (int(p['fan_bc_x']), int(p['fan_bc_y'])))
 
-                    # Photo — Profile ምስል ከ session_state
+                    # Photo — Profile ምስል ከ session_state (BGRA transparent support)
                     if st.session_state.photo_cropped is not None:
-                        ph_img = Image.fromarray(cv2.cvtColor(st.session_state.photo_cropped, cv2.COLOR_BGR2RGB))
-                        pw = int(st.session_state.pos.get('photo_w', 190))
-                        ph = int(st.session_state.pos.get('photo_h', 240))
-                        px = int(st.session_state.pos.get('photo_x', 105))
-                        py = int(st.session_state.pos.get('photo_y', 165))
-                        bg.paste(ph_img.resize((pw, ph), Image.LANCZOS), (px, py))
+                        raw = st.session_state.photo_cropped
+                        pw_v = int(st.session_state.pos.get('photo_w', 190))
+                        ph_v = int(st.session_state.pos.get('photo_h', 240))
+                        px_v = int(st.session_state.pos.get('photo_x', 105))
+                        py_v = int(st.session_state.pos.get('photo_y', 165))
+                        if raw.shape[2] == 4:
+                            # BGRA → RGBA PIL
+                            ph_img = Image.fromarray(cv2.cvtColor(raw, cv2.COLOR_BGRA2RGBA), 'RGBA')
+                            ph_img = ph_img.resize((pw_v, ph_v), Image.LANCZOS)
+                            # transparent paste — alpha channel ይጠቀማል
+                            bg.paste(ph_img, (px_v, py_v), ph_img.split()[3])
+                        else:
+                            ph_img = Image.fromarray(cv2.cvtColor(raw, cv2.COLOR_BGR2RGB))
+                            bg.paste(ph_img.resize((pw_v, ph_v), Image.LANCZOS), (px_v, py_v))
 
                     st.image(bg, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Front)", use_container_width=True)
 
