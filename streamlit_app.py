@@ -368,106 +368,85 @@ if uploaded_profile:
     prof_bytes = uploaded_profile.read()
     prof_cv    = cv2.imdecode(np.frombuffer(prof_bytes, np.uint8), cv2.IMREAD_COLOR)
     ph, pw     = prof_cv.shape[:2]
-    gray_prof  = cv2.cvtColor(prof_cv, cv2.COLOR_BGR2GRAY)
 
-    # ══ QR Code — finder patterns ይፈልጋል (3 ትላልቅ ጥቁር ሳጥኖች) ══
-    def find_qr_region(img_bgr):
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-        _, bw = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY_INV)
-        cnts, _ = cv2.findContours(bw, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        squares = []
-        for c in cnts:
-            peri = cv2.arcLength(c, True)
-            approx = cv2.approxPolyDP(c, 0.04 * peri, True)
-            if len(approx) == 4:
-                x, y, w, h = cv2.boundingRect(approx)
-                ar = w / float(h)
-                area = w * h
-                if 0.8 < ar < 1.2 and area > 400:
-                    squares.append((x, y, w, h))
-        if len(squares) < 3:
-            return None
-        # ትላልቅ 3 ሳጥኖችን ምረጥ
-        squares = sorted(squares, key=lambda s: s[2]*s[3], reverse=True)[:3]
-        xs = [s[0] for s in squares]
-        ys = [s[1] for s in squares]
-        ws = [s[2] for s in squares]
-        hs = [s[3] for s in squares]
-        pad = int(max(ws + hs) * 0.5)
-        x1 = max(0, min(xs) - pad)
-        y1 = max(0, min(ys) - pad)
-        x2 = min(img_bgr.shape[1], max(x+w for x,y,w,h in squares) + pad)
-        y2 = min(img_bgr.shape[0], max(y+h for x,y,w,h in squares) + pad)
-        return img_bgr[y1:y2, x1:x2]
-
-    # ══ ፎቶ — 4-ማዕዘን ትልቅ contour ፈልጎ white border ይቁረጥ ══
-    def find_rect_photo(img_bgr):
+    # ══ ትልቁ ነጭ ሳጥን ፈልጎ ያወጣ ══
+    def extract_white_card(img_bgr):
         gray    = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges   = cv2.Canny(blurred, 30, 100)
-        cnts, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        best      = None
-        best_area = 0
-        img_area  = img_bgr.shape[0] * img_bgr.shape[1]
-        for c in cnts:
-            peri   = cv2.arcLength(c, True)
-            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-            if len(approx) == 4:
-                x, y, w, h = cv2.boundingRect(approx)
-                area = w * h
-                ar   = w / float(h)
-                if 0.05 * img_area < area < 0.65 * img_area and 0.5 < ar < 1.0:
-                    if area > best_area:
-                        best_area = area
-                        best = (x, y, w, h)
-        if best is None:
-            return None
-        x, y, w, h = best
-        crop = img_bgr[y:y+h, x:x+w]
+        # ነጭ ቦታ mask — brightness > 200
+        _, white_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        # noise ያስወግዳል
+        kernel = np.ones((15, 15), np.uint8)
+        white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
+        white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_OPEN,  kernel)
+        cnts, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not cnts:
+            return None, None, None
+        # ትልቁ ነጭ contour
+        biggest = max(cnts, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(biggest)
+        card = img_bgr[y:y+h, x:x+w]
+        return card, (x, y, w, h), img_bgr
 
-        # White border — 4 ጎን ሁሉ ያስወግዳል
-        # ነጭ ምንድን ነው: row/column አማካኝ brightness > 230
-        gray_c = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        thresh = 230
+    card, bbox, _ = extract_white_card(prof_cv)
 
-        # ላይ — ነጭ rows ይዝለሉ
-        top = 0
-        for i in range(gray_c.shape[0]):
-            if np.mean(gray_c[i, :]) < thresh:
-                top = i
-                break
+    if card is not None:
+        ch, cw = card.shape[:2]
 
-        # ታች — ከ ታች ወደ ላይ ነጭ rows ይዝለሉ
-        bottom = gray_c.shape[0]
-        for i in range(gray_c.shape[0] - 1, -1, -1):
-            if np.mean(gray_c[i, :]) < thresh:
-                bottom = i + 1
-                break
+        # ══ ካርዱ ውስጥ ፎቶ ክፍል ፈልጎ ያወጣ (ላይ ክፍል — non-white content) ══
+        def find_photo_in_card(card_bgr):
+            gray_c  = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2GRAY)
+            ch, cw  = card_bgr.shape[:2]
+            # ነጭ row ያልሆኑ rows ፈልግ (row mean < 220)
+            row_means = np.mean(gray_c, axis=1)
+            content_rows = np.where(row_means < 220)[0]
+            if len(content_rows) == 0:
+                return card_bgr[:ch//2, :]
+            # content ሁለት ቡድን አለ — ፎቶ (ላይ) እና QR (ታች)
+            # ክፍፍሉን ፈልግ — ትልቅ gap ባለበት ቦታ
+            gaps = np.diff(content_rows)
+            if len(gaps) > 0 and np.max(gaps) > 10:
+                split_idx = np.argmax(gaps)
+                photo_end_row = content_rows[split_idx]
+                # ከ ነጭ margin ጋር
+                pad = 5
+                top    = max(0, content_rows[0] - pad)
+                bottom = min(ch, photo_end_row + pad)
+                photo_crop = card_bgr[top:bottom, :]
+                # column ነጭ border ያስወግዳል
+                col_means  = np.mean(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY), axis=0)
+                left_col   = next((j for j in range(len(col_means)) if col_means[j] < 220), 0)
+                right_col  = next((j for j in range(len(col_means)-1, -1, -1) if col_means[j] < 220), len(col_means)-1)
+                return photo_crop[:, left_col:right_col+1]
+            # gap ካልተሰጠ ላይ ክፍሉን ብቻ ይመልሳል
+            return card_bgr[:ch//2, :]
 
-        # ግራ — ነጭ columns ይዝለሉ
-        left = 0
-        for j in range(gray_c.shape[1]):
-            if np.mean(gray_c[:, j]) < thresh:
-                left = j
-                break
+        def find_qr_in_card(card_bgr):
+            gray_c  = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2GRAY)
+            ch, cw  = card_bgr.shape[:2]
+            row_means = np.mean(gray_c, axis=1)
+            content_rows = np.where(row_means < 220)[0]
+            if len(content_rows) == 0:
+                return card_bgr[ch//2:, :]
+            gaps = np.diff(content_rows)
+            if len(gaps) > 0 and np.max(gaps) > 10:
+                split_idx   = np.argmax(gaps)
+                qr_start_row = content_rows[split_idx + 1]
+                pad = 5
+                top    = max(0, qr_start_row - pad)
+                bottom = min(ch, content_rows[-1] + pad)
+                qr_crop   = card_bgr[top:bottom, :]
+                col_means = np.mean(cv2.cvtColor(qr_crop, cv2.COLOR_BGR2GRAY), axis=0)
+                left_col  = next((j for j in range(len(col_means)) if col_means[j] < 220), 0)
+                right_col = next((j for j in range(len(col_means)-1, -1, -1) if col_means[j] < 220), len(col_means)-1)
+                return qr_crop[:, left_col:right_col+1]
+            return card_bgr[ch//2:, :]
 
-        # ቀኝ — ከ ቀኝ ወደ ግራ ነጭ columns ይዝለሉ
-        right = gray_c.shape[1]
-        for j in range(gray_c.shape[1] - 1, -1, -1):
-            if np.mean(gray_c[:, j]) < thresh:
-                right = j + 1
-                break
-
-        return crop[top:bottom, left:right]
-
-    qr_result    = find_qr_region(prof_cv)
-    photo_result = find_rect_photo(prof_cv)
-
-    # fallback ካልተሳካ
-    if qr_result is None:
-        qr_result = prof_cv[int(ph * 0.52):ph, :]
-    if photo_result is None:
-        photo_result = prof_cv[0:int(ph * 0.48), :]
+        photo_result = find_photo_in_card(card)
+        qr_result    = find_qr_in_card(card)
+    else:
+        # fallback
+        photo_result = prof_cv[0:int(ph*0.48), :]
+        qr_result    = prof_cv[int(ph*0.52):ph, :]
 
     st.session_state.photo_cropped = photo_result
     st.session_state.qr_cropped    = qr_result
