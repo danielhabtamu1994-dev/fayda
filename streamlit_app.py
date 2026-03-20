@@ -420,7 +420,7 @@ if uploaded_profile:
             # gap ካልተሰጠ ላይ ክፍሉን ብቻ ይመልሳል
             return card_bgr[:ch//2, :]
 
-        def find_qr_in_card(card_bgr):
+        def find_qr_in_card(card_bgr, margin=18):
             gray_c  = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2GRAY)
             ch, cw  = card_bgr.shape[:2]
             row_means = np.mean(gray_c, axis=1)
@@ -429,7 +429,7 @@ if uploaded_profile:
                 return card_bgr[ch//2:, :]
             gaps = np.diff(content_rows)
             if len(gaps) > 0 and np.max(gaps) > 10:
-                split_idx   = np.argmax(gaps)
+                split_idx    = np.argmax(gaps)
                 qr_start_row = content_rows[split_idx + 1]
                 pad = 5
                 top    = max(0, qr_start_row - pad)
@@ -438,7 +438,12 @@ if uploaded_profile:
                 col_means = np.mean(cv2.cvtColor(qr_crop, cv2.COLOR_BGR2GRAY), axis=0)
                 left_col  = next((j for j in range(len(col_means)) if col_means[j] < 220), 0)
                 right_col = next((j for j in range(len(col_means)-1, -1, -1) if col_means[j] < 220), len(col_means)-1)
-                return qr_crop[:, left_col:right_col+1]
+                tight = qr_crop[:, left_col:right_col+1]
+                # 4 ጎን ነጭ margin ይጨምራል
+                th, tw = tight.shape[:2]
+                canvas = np.ones((th + margin*2, tw + margin*2, 3), dtype=np.uint8) * 255
+                canvas[margin:margin+th, margin:margin+tw] = tight
+                return canvas
             return card_bgr[ch//2:, :]
 
         photo_result = find_photo_in_card(card)
