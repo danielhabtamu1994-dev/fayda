@@ -10,15 +10,9 @@ import json
 import barcode
 from barcode.writer import ImageWriter
 
-# ── MediaPipe Selfie Segmentation — cached ─────────────────────
-@st.cache_resource(show_spinner=False)
+# ── Photo background removal placeholder ───────────────────────
 def get_mp_segmentor():
-    try:
-        import mediapipe as mp
-        seg = mp.solutions.selfie_segmentation.SelfieSegmentation(model_selection=1)
-        return seg
-    except Exception:
-        return None
+    return None
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
