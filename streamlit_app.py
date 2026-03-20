@@ -10,12 +10,13 @@ import json
 import barcode
 from barcode.writer import ImageWriter
 
-# ── rembg — cached session (u2netp small ~4MB) ─────────────────
+# ── MediaPipe Selfie Segmentation — cached ─────────────────────
 @st.cache_resource(show_spinner=False)
-def get_rembg_session():
+def get_mp_segmentor():
     try:
-        from rembg import new_session
-        return new_session("u2netp")
+        import mediapipe as mp
+        seg = mp.solutions.selfie_segmentation.SelfieSegmentation(model_selection=1)
+        return seg
     except Exception:
         return None
 
@@ -429,25 +430,26 @@ if uploaded_profile:
             ph2, pw2 = photo_crop.shape[:2]
             photo_crop = photo_crop[trim:ph2-trim, trim:pw2-trim]
 
-            # ── Background removal — rembg u2netp → BW → transparent ─
+            # ── Background removal — MediaPipe → BW → transparent ────
             ph2, pw2 = photo_crop.shape[:2]
-            rembg_session = get_rembg_session()
-            if rembg_session is not None:
+            segmentor = get_mp_segmentor()
+            if segmentor is not None:
                 try:
-                    from rembg import remove as rembg_remove
-                    pil_photo = Image.fromarray(cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB))
-                    pil_nobg  = rembg_remove(pil_photo, session=rembg_session)
-                    r, g, b, a = pil_nobg.split()
-                    gray    = pil_nobg.convert('L')
-                    bw_rgba = Image.merge('RGBA', (gray, gray, gray, a))
-                    bgra    = cv2.cvtColor(np.array(bw_rgba), cv2.COLOR_RGBA2BGRA)
+                    rgb       = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB)
+                    results   = segmentor.process(rgb)
+                    fg_mask   = (results.segmentation_mask > 0.5).astype(np.uint8) * 255
+                    # ── Black & White ──────────────────────────────
+                    gray      = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
+                    bw_3ch    = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+                    bgra      = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
+                    bgra[:, :, 3] = fg_mask
                     return bgra
                 except Exception:
                     pass
             # fallback — BW ብቻ
-            gray_photo = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-            bw_3ch     = cv2.cvtColor(gray_photo, cv2.COLOR_GRAY2BGR)
-            bgra       = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
+            gray   = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
+            bw_3ch = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            bgra   = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
             bgra[:, :, 3] = 255
             return bgra
 
