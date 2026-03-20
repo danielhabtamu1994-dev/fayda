@@ -7,6 +7,8 @@ import io
 import pandas as pd
 import requests
 import json
+import barcode
+from barcode.writer import ImageWriter
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
@@ -81,10 +83,14 @@ DEFAULT_SETTINGS = {
         'dob_x': 700, 'dob_y': 390,
         'sex_x': 620, 'sex_y': 470,
         'exp_x': 710, 'exp_y': 555,
+        'fan_x': 575, 'fan_y': 648,
+        'fan_bc_x': 575, 'fan_bc_y': 600,
     },
     'size': {
         'amh': 32, 'eng': 32,
         'dob': 28, 'sex': 28, 'exp': 28,
+        'fan': 28,
+        'fan_bc': 120,   # barcode height in px
     }
 }
 
@@ -156,6 +162,33 @@ if not st.session_state.firebase_loaded:
         if 'size_back' in saved:
             st.session_state.size_back = {**DEFAULT_SETTINGS_BACK['size'], **saved['size_back']}
     st.session_state.firebase_loaded = True
+
+# ══════════════════════════════════════════════════════════════════
+# Barcode generator helper
+# ══════════════════════════════════════════════════════════════════
+def generate_barcode_image(data: str, height_px: int = 120) -> Image.Image | None:
+    """Generate a Code128 barcode PIL image from data string."""
+    try:
+        CODE128 = barcode.get_barcode_class('code128')
+        writer  = ImageWriter()
+        buf     = io.BytesIO()
+        bc      = CODE128(data, writer=writer)
+        options = {
+            'write_text': False,
+            'module_height': max(5, height_px / 10),
+            'module_width':  0.5,
+            'quiet_zone':    1.0,
+            'dpi':           200,
+        }
+        bc.write(buf, options=options)
+        buf.seek(0)
+        img = Image.open(buf).convert("RGB")
+        # scale to exact height keeping aspect
+        w, h = img.size
+        new_w = int(w * height_px / h)
+        return img.resize((new_w, height_px), Image.LANCZOS)
+    except Exception as e:
+        return None
 
 # ══════════════════════════════════════════════════════════════════
 # Auto-detection — Front
@@ -269,7 +302,7 @@ with st.container():
                 if 'pos_back'  in saved: st.session_state.pos_back  = {**DEFAULT_SETTINGS_BACK['pos'], **saved['pos_back']}
                 if 'size_back' in saved: st.session_state.size_back = {**DEFAULT_SETTINGS_BACK['size'],**saved['size_back']}
                 # sync number_input keys
-                for fk in ['amh','eng','dob','sex','exp']:
+                for fk in ['amh','eng','dob','sex','exp','fan','fan_bc']:
                     st.session_state[f"fx_{fk}"] = st.session_state.pos[f"{fk}_x"]
                     st.session_state[f"fy_{fk}"] = st.session_state.pos[f"{fk}_y"]
                     st.session_state[f"fs_{fk}"] = st.session_state.size[fk]
@@ -427,11 +460,13 @@ with tab_front:
         st.markdown("### 🕹️ ደረጃ 3: ቦታ እና ፊደል መጠን ማስተካከያ")
 
         field_labels = {
-            'amh': 'አማርኛ ስም',
-            'eng': 'እንግሊዝኛ ስም',
-            'dob': 'የትውልድ ቀን',
-            'sex': 'ፆታ',
-            'exp': 'ቀን ማብቂያ',
+            'amh':    'አማርኛ ስም',
+            'eng':    'እንግሊዝኛ ስም',
+            'dob':    'የትውልድ ቀን',
+            'sex':    'ፆታ',
+            'exp':    'ቀን ማብቂያ',
+            'fan':    '🔖 FAN (ጽሁፍ)',
+            'fan_bc': '📊 FAN Barcode',
         }
 
         # init pos/size into individual session_state keys for number_input
@@ -467,7 +502,7 @@ with tab_front:
             if st.button("↩️ ቦታዎችን ወደ ነባሪ መልስ", use_container_width=True, key="reset_front"):
                 st.session_state.pos  = DEFAULT_SETTINGS['pos'].copy()
                 st.session_state.size = DEFAULT_SETTINGS['size'].copy()
-                for fk in ['amh','eng','dob','sex','exp']:
+                for fk in ['amh','eng','dob','sex','exp','fan','fan_bc']:
                     st.session_state[f"fx_{fk}"] = DEFAULT_SETTINGS['pos'][f"{fk}_x"]
                     st.session_state[f"fy_{fk}"] = DEFAULT_SETTINGS['pos'][f"{fk}_y"]
                     st.session_state[f"fs_{fk}"] = DEFAULT_SETTINGS['size'][fk]
@@ -511,6 +546,17 @@ with tab_front:
                     draw_smart_text(draw, (p['dob_x'], p['dob_y']), safe_line(dob_n), sz['dob'], sz['dob'], tc)
                     draw_smart_text(draw, (p['sex_x'], p['sex_y']), safe_line(sex_n), sz['sex'], sz['sex'], tc)
                     draw_smart_text(draw, (p['exp_x'], p['exp_y']), safe_line(exp_n), sz['exp'], sz['exp'], tc)
+
+                    # FAN — manual ሳጥን ወይም OCR ከ session_state
+                    fan_digits_gen = ''.join(c for c in st.session_state.get('fan_manual','') if c.isdigit())
+                    if fan_digits_gen:
+                        draw_smart_text(draw, (p['fan_x'], p['fan_y']), fan_digits_gen, sz['fan'], sz['fan'], tc)
+
+                    # FAN Barcode
+                    if fan_digits_gen:
+                        bc_img = generate_barcode_image(fan_digits_gen, height_px=int(sz['fan_bc']))
+                        if bc_img:
+                            bg.paste(bc_img, (int(p['fan_bc_x']), int(p['fan_bc_y'])))
 
                     # Photo — background size ላይ ተመስርቶ ይቀምጣል
                     bg_w, bg_h = bg.size
