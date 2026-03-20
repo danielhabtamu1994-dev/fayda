@@ -202,6 +202,14 @@ with st.container():
                 if 'size'      in saved: st.session_state.size      = {**DEFAULT_SETTINGS['size'],     **saved['size']}
                 if 'pos_back'  in saved: st.session_state.pos_back  = {**DEFAULT_SETTINGS_BACK['pos'], **saved['pos_back']}
                 if 'size_back' in saved: st.session_state.size_back = {**DEFAULT_SETTINGS_BACK['size'],**saved['size_back']}
+                # sync number_input keys
+                for fk in ['amh','eng','dob','sex','exp']:
+                    st.session_state[f"fx_{fk}"] = st.session_state.pos[f"{fk}_x"]
+                    st.session_state[f"fy_{fk}"] = st.session_state.pos[f"{fk}_y"]
+                    st.session_state[f"fs_{fk}"] = st.session_state.size[fk]
+                    st.session_state[f"bx_{fk}"] = st.session_state.pos_back[f"{fk}_x"]
+                    st.session_state[f"by_{fk}"] = st.session_state.pos_back[f"{fk}_y"]
+                    st.session_state[f"bs_{fk}"] = st.session_state.size_back[fk]
                 st.success("✅ Loaded!")
                 st.rerun()
             else:
@@ -335,81 +343,43 @@ with tab_front:
             'exp': 'ቀን ማብቂያ',
         }
 
-        def move(key, axis, delta):
-            st.session_state.pos[f"{key}_{axis}"] += delta
-        def resize(key, delta):
-            st.session_state.size[key] = max(10, st.session_state.size[key] + delta)
+        # init pos/size into individual session_state keys for number_input
+        for fk in field_labels:
+            if f"fx_{fk}" not in st.session_state:
+                st.session_state[f"fx_{fk}"] = st.session_state.pos[f"{fk}_x"]
+            if f"fy_{fk}" not in st.session_state:
+                st.session_state[f"fy_{fk}"] = st.session_state.pos[f"{fk}_y"]
+            if f"fs_{fk}" not in st.session_state:
+                st.session_state[f"fs_{fk}"] = st.session_state.size[fk]
 
-        sel = st.radio(
-            "ማስተካከያ ጽሁፍ ምረጥ:",
-            options=list(field_labels.keys()),
-            format_func=lambda k: field_labels[k],
-            horizontal=True,
-            key="selected_field"
-        )
+        hdr_c0, hdr_c1, hdr_c2, hdr_c3 = st.columns([2, 1, 1, 1])
+        hdr_c1.markdown("**X**")
+        hdr_c2.markdown("**Y**")
+        hdr_c3.markdown("**Size**")
 
-        step = st.select_slider("የቦታ እርምጃ (px):", options=[1, 2, 5, 10, 20], value=5, key="step_front")
-
-        col_move, col_size = st.columns([1, 1])
-
-        with col_move:
-            st.markdown("**📍 ቦታ ማንቀሳቀሻ**")
-            col_pad, col_ctrl, col_pad2 = st.columns([1, 2, 1])
-            with col_ctrl:
-                r1c1, r1c2, r1c3 = st.columns(3)
-                with r1c2:
-                    st.button("▲", on_click=move, args=(sel,'y',-step), key="up_f",    use_container_width=True)
-                r2c1, r2c2, r2c3 = st.columns(3)
-                with r2c1:
-                    st.button("◄", on_click=move, args=(sel,'x',-step), key="left_f",  use_container_width=True)
-                with r2c2:
-                    pos_txt = f"({st.session_state.pos[f'{sel}_x']}, {st.session_state.pos[f'{sel}_y']})"
-                    st.markdown(f"<div style='text-align:center;font-size:11px;color:#888;padding:6px'>{pos_txt}</div>",
-                                unsafe_allow_html=True)
-                with r2c3:
-                    st.button("►", on_click=move, args=(sel,'x', step), key="right_f", use_container_width=True)
-                r3c1, r3c2, r3c3 = st.columns(3)
-                with r3c2:
-                    st.button("▼", on_click=move, args=(sel,'y', step), key="down_f",  use_container_width=True)
-
-        with col_size:
-            st.markdown("**🔡 ፊደል መጠን**")
-            cur_size = st.session_state.size[sel]
-            sc1, sc2, sc3 = st.columns([1, 2, 1])
-            with sc1:
-                st.button("➖", on_click=resize, args=(sel, -1), key="sz_minus_f", use_container_width=True)
-            with sc2:
-                st.markdown(
-                    f"<div style='text-align:center;font-size:28px;font-weight:bold;"
-                    f"padding:4px;color:#333'>{cur_size}px</div>",
-                    unsafe_allow_html=True
-                )
-            with sc3:
-                st.button("➕", on_click=resize, args=(sel,  1), key="sz_plus_f",  use_container_width=True)
-
-            new_size = st.slider(f"", 10, 72, cur_size, key=f"sz_sl_f_{sel}")
-            if new_size != cur_size:
-                st.session_state.size[sel] = new_size
-
-        with st.expander("🎛️ Slider ማስተካከያ (ሁሉም fields)"):
-            for key, label in field_labels.items():
+        for fk, label in field_labels.items():
+            col0, col1, col2, col3 = st.columns([2, 1, 1, 1])
+            with col0:
                 st.markdown(f"**{label}**")
-                ca, cb, cc = st.columns(3)
-                with ca:
-                    nx = st.slider(f"X", 100, 1200, st.session_state.pos[f'{key}_x'], key=f"sx_f_{key}")
-                    st.session_state.pos[f'{key}_x'] = nx
-                with cb:
-                    ny = st.slider(f"Y", 150, 780,  st.session_state.pos[f'{key}_y'], key=f"sy_f_{key}")
-                    st.session_state.pos[f'{key}_y'] = ny
-                with cc:
-                    ns = st.slider(f"Size", 10, 72, st.session_state.size[key],        key=f"ss_f_{key}")
-                    st.session_state.size[key] = ns
+            with col1:
+                vx = st.number_input("", key=f"fx_{fk}", label_visibility="collapsed", step=1)
+                st.session_state.pos[f"{fk}_x"] = int(vx)
+            with col2:
+                vy = st.number_input("", key=f"fy_{fk}", label_visibility="collapsed", step=1)
+                st.session_state.pos[f"{fk}_y"] = int(vy)
+            with col3:
+                vs = st.number_input("", key=f"fs_{fk}", label_visibility="collapsed", step=1, min_value=1)
+                st.session_state.size[fk] = int(vs)
 
         col_r1, col_r2 = st.columns(2)
         with col_r1:
             if st.button("↩️ ቦታዎችን ወደ ነባሪ መልስ", use_container_width=True, key="reset_front"):
                 st.session_state.pos  = DEFAULT_SETTINGS['pos'].copy()
                 st.session_state.size = DEFAULT_SETTINGS['size'].copy()
+                for fk in ['amh','eng','dob','sex','exp']:
+                    st.session_state[f"fx_{fk}"] = DEFAULT_SETTINGS['pos'][f"{fk}_x"]
+                    st.session_state[f"fy_{fk}"] = DEFAULT_SETTINGS['pos'][f"{fk}_y"]
+                    st.session_state[f"fs_{fk}"] = DEFAULT_SETTINGS['size'][fk]
                 st.rerun()
         with col_r2:
             if st.button("💾 አሁን Save (Firebase)", use_container_width=True, key="save_front"):
@@ -578,81 +548,43 @@ with tab_back:
             'exp': 'ቀን ማብቂያ',
         }
 
-        def move_back(key, axis, delta):
-            st.session_state.pos_back[f"{key}_{axis}"] += delta
-        def resize_back(key, delta):
-            st.session_state.size_back[key] = max(10, st.session_state.size_back[key] + delta)
+        # init pos/size into individual session_state keys for number_input
+        for fk in field_labels_back:
+            if f"bx_{fk}" not in st.session_state:
+                st.session_state[f"bx_{fk}"] = st.session_state.pos_back[f"{fk}_x"]
+            if f"by_{fk}" not in st.session_state:
+                st.session_state[f"by_{fk}"] = st.session_state.pos_back[f"{fk}_y"]
+            if f"bs_{fk}" not in st.session_state:
+                st.session_state[f"bs_{fk}"] = st.session_state.size_back[fk]
 
-        sel_back = st.radio(
-            "ማስተካከያ ጽሁፍ ምረጥ (Back):",
-            options=list(field_labels_back.keys()),
-            format_func=lambda k: field_labels_back[k],
-            horizontal=True,
-            key="selected_field_back"
-        )
+        bhdr_c0, bhdr_c1, bhdr_c2, bhdr_c3 = st.columns([2, 1, 1, 1])
+        bhdr_c1.markdown("**X**")
+        bhdr_c2.markdown("**Y**")
+        bhdr_c3.markdown("**Size**")
 
-        step_back = st.select_slider("የቦታ እርምጃ (px):", options=[1, 2, 5, 10, 20], value=5, key="step_back")
-
-        col_move_b, col_size_b = st.columns([1, 1])
-
-        with col_move_b:
-            st.markdown("**📍 ቦታ ማንቀሳቀሻ**")
-            col_pad_b, col_ctrl_b, col_pad2_b = st.columns([1, 2, 1])
-            with col_ctrl_b:
-                rb1c1, rb1c2, rb1c3 = st.columns(3)
-                with rb1c2:
-                    st.button("▲", on_click=move_back, args=(sel_back,'y',-step_back), key="up_b",    use_container_width=True)
-                rb2c1, rb2c2, rb2c3 = st.columns(3)
-                with rb2c1:
-                    st.button("◄", on_click=move_back, args=(sel_back,'x',-step_back), key="left_b",  use_container_width=True)
-                with rb2c2:
-                    pos_txt_b = f"({st.session_state.pos_back[f'{sel_back}_x']}, {st.session_state.pos_back[f'{sel_back}_y']})"
-                    st.markdown(f"<div style='text-align:center;font-size:11px;color:#888;padding:6px'>{pos_txt_b}</div>",
-                                unsafe_allow_html=True)
-                with rb2c3:
-                    st.button("►", on_click=move_back, args=(sel_back,'x', step_back), key="right_b", use_container_width=True)
-                rb3c1, rb3c2, rb3c3 = st.columns(3)
-                with rb3c2:
-                    st.button("▼", on_click=move_back, args=(sel_back,'y', step_back), key="down_b",  use_container_width=True)
-
-        with col_size_b:
-            st.markdown("**🔡 ፊደል መጠን**")
-            cur_size_b = st.session_state.size_back[sel_back]
-            sb1, sb2, sb3 = st.columns([1, 2, 1])
-            with sb1:
-                st.button("➖", on_click=resize_back, args=(sel_back, -1), key="sz_minus_b", use_container_width=True)
-            with sb2:
-                st.markdown(
-                    f"<div style='text-align:center;font-size:28px;font-weight:bold;"
-                    f"padding:4px;color:#333'>{cur_size_b}px</div>",
-                    unsafe_allow_html=True
-                )
-            with sb3:
-                st.button("➕", on_click=resize_back, args=(sel_back, 1), key="sz_plus_b",  use_container_width=True)
-
-            new_size_b = st.slider("", 10, 72, cur_size_b, key=f"sz_sl_b_{sel_back}")
-            if new_size_b != cur_size_b:
-                st.session_state.size_back[sel_back] = new_size_b
-
-        with st.expander("🎛️ Slider ማስተካከያ (ሁሉም fields — Back)"):
-            for key, label in field_labels_back.items():
+        for fk, label in field_labels_back.items():
+            bcol0, bcol1, bcol2, bcol3 = st.columns([2, 1, 1, 1])
+            with bcol0:
                 st.markdown(f"**{label}**")
-                ca, cb, cc = st.columns(3)
-                with ca:
-                    nx = st.slider(f"X", 100, 1200, st.session_state.pos_back[f'{key}_x'], key=f"sx_b_{key}")
-                    st.session_state.pos_back[f'{key}_x'] = nx
-                with cb:
-                    ny = st.slider(f"Y", 150, 780,  st.session_state.pos_back[f'{key}_y'], key=f"sy_b_{key}")
-                    st.session_state.pos_back[f'{key}_y'] = ny
-                with cc:
-                    ns = st.slider(f"Size", 10, 72, st.session_state.size_back[key], key=f"ss_b_{key}")
-                    st.session_state.size_back[key] = ns
+            with bcol1:
+                vx = st.number_input("", key=f"bx_{fk}", label_visibility="collapsed", step=1)
+                st.session_state.pos_back[f"{fk}_x"] = int(vx)
+            with bcol2:
+                vy = st.number_input("", key=f"by_{fk}", label_visibility="collapsed", step=1)
+                st.session_state.pos_back[f"{fk}_y"] = int(vy)
+            with bcol3:
+                vs = st.number_input("", key=f"bs_{fk}", label_visibility="collapsed", step=1, min_value=1)
+                st.session_state.size_back[fk] = int(vs)
 
         col_rb1, col_rb2 = st.columns(2)
         with col_rb1:
             if st.button("↩️ ቦታዎችን ወደ ነባሪ መልስ (Back)", use_container_width=True, key="reset_back"):
                 st.session_state.pos_back  = DEFAULT_SETTINGS_BACK['pos'].copy()
                 st.session_state.size_back = DEFAULT_SETTINGS_BACK['size'].copy()
+                for fk in ['amh','eng','dob','sex','exp']:
+                    st.session_state[f"bx_{fk}"] = DEFAULT_SETTINGS_BACK['pos'][f"{fk}_x"]
+                    st.session_state[f"by_{fk}"] = DEFAULT_SETTINGS_BACK['pos'][f"{fk}_y"]
+                    st.session_state[f"bs_{fk}"] = DEFAULT_SETTINGS_BACK['size'][fk]
                 st.rerun()
         with col_rb2:
             if st.button("💾 አሁን Save (Firebase)", use_container_width=True, key="save_back"):
