@@ -431,6 +431,7 @@ if uploaded_profile:
             try:
                 api_key = st.secrets.get("REMOVE_BG_KEY", "")
                 if not api_key:
+                    st.warning("⚠️ REMOVE_BG_KEY secret አልተገኘም — fallback BW")
                     raise ValueError("API key የለም")
 
                 # BGR → PNG bytes
@@ -446,19 +447,19 @@ if uploaded_profile:
                     timeout=30,
                 )
                 if resp.status_code == 200:
-                    # PNG RGBA ሆኖ ይመለሳል
                     pil_nobg = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-                    # ── Black & White ──────────────────────────────
                     r, g, b, a = pil_nobg.split()
                     gray_pil   = pil_nobg.convert('L')
                     bw_rgba    = Image.merge('RGBA', (gray_pil, gray_pil, gray_pil, a))
                     bgra       = cv2.cvtColor(np.array(bw_rgba), cv2.COLOR_RGBA2BGRA)
                     return bgra
                 else:
+                    st.error(f"❌ remove.bg API error: {resp.status_code} — {resp.text[:200]}")
                     raise ValueError(f"remove.bg error: {resp.status_code}")
 
-            except Exception:
-                # fallback — BW ብቻ (background ሳይቆረጥ)
+            except Exception as e:
+                st.info(f"ℹ️ Background removal fallback: {e}")
+                # fallback — BW ብቻ
                 gray   = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
                 bw_3ch = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
                 bgra   = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
