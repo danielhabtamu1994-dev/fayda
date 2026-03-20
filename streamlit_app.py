@@ -10,9 +10,7 @@ import json
 import barcode
 from barcode.writer import ImageWriter
 
-# ── Photo background removal placeholder ───────────────────────
-def get_mp_segmentor():
-    return None
+
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
@@ -424,28 +422,44 @@ if uploaded_profile:
             ph2, pw2 = photo_crop.shape[:2]
             photo_crop = photo_crop[trim:ph2-trim, trim:pw2-trim]
 
-            # ── Background removal — MediaPipe → BW → transparent ────
+            # ── Background removal — remove.bg API → BW → transparent ─
             ph2, pw2 = photo_crop.shape[:2]
-            segmentor = get_mp_segmentor()
-            if segmentor is not None:
-                try:
-                    rgb       = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2RGB)
-                    results   = segmentor.process(rgb)
-                    fg_mask   = (results.segmentation_mask > 0.5).astype(np.uint8) * 255
+            try:
+                api_key = st.secrets.get("REMOVE_BG_KEY", "")
+                if not api_key:
+                    raise ValueError("API key የለም")
+
+                # BGR → PNG bytes
+                _, buf = cv2.imencode('.png', photo_crop)
+                png_bytes = buf.tobytes()
+
+                # remove.bg API call
+                resp = requests.post(
+                    "https://api.remove.bg/v1.0/removebg",
+                    files={"image_file": ("photo.png", png_bytes, "image/png")},
+                    data={"size": "auto"},
+                    headers={"X-Api-Key": api_key},
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    # PNG RGBA ሆኖ ይመለሳል
+                    pil_nobg = Image.open(io.BytesIO(resp.content)).convert("RGBA")
                     # ── Black & White ──────────────────────────────
-                    gray      = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-                    bw_3ch    = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-                    bgra      = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
-                    bgra[:, :, 3] = fg_mask
+                    r, g, b, a = pil_nobg.split()
+                    gray_pil   = pil_nobg.convert('L')
+                    bw_rgba    = Image.merge('RGBA', (gray_pil, gray_pil, gray_pil, a))
+                    bgra       = cv2.cvtColor(np.array(bw_rgba), cv2.COLOR_RGBA2BGRA)
                     return bgra
-                except Exception:
-                    pass
-            # fallback — BW ብቻ
-            gray   = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
-            bw_3ch = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-            bgra   = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
-            bgra[:, :, 3] = 255
-            return bgra
+                else:
+                    raise ValueError(f"remove.bg error: {resp.status_code}")
+
+            except Exception:
+                # fallback — BW ብቻ (background ሳይቆረጥ)
+                gray   = cv2.cvtColor(photo_crop, cv2.COLOR_BGR2GRAY)
+                bw_3ch = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+                bgra   = cv2.cvtColor(bw_3ch, cv2.COLOR_BGR2BGRA)
+                bgra[:, :, 3] = 255
+                return bgra
 
         def find_qr_in_card(card_bgr, margin=18):
             gray_c  = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2GRAY)
