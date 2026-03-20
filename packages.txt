@@ -2,3 +2,5 @@ tesseract-ocr
 tesseract-ocr-amh
 tesseract-ocr-eng
 libzbar0
+libgl1-mesa-glx
+libglib2.0-0
