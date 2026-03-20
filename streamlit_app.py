@@ -318,6 +318,10 @@ with st.container():
                     st.session_state[f"fy_{fk}"] = st.session_state.pos[f"{fk}_y"]
                     st.session_state[f"fs_{fk}"] = st.session_state.size[fk]
                 st.session_state["inp_fan_bc_w"] = st.session_state.pos.get('fan_bc_w', DEFAULT_SETTINGS['pos']['fan_bc_w'])
+                for pk in ['photo_x','photo_y','photo_w','photo_h']:
+                    st.session_state[f"fp_{pk}"] = st.session_state.pos.get(pk, DEFAULT_SETTINGS['pos'][pk])
+                for qk in ['qr_x','qr_y','qr_w','qr_h']:
+                    st.session_state[f"bp_{qk}"] = st.session_state.pos_back.get(qk, DEFAULT_SETTINGS_BACK['pos'][qk])
                 for fk in ['phone','fin','addr_amh','addr_eng','zone_amh','zone_eng','woreda_amh','woreda_amh_num','woreda_eng']:
                     st.session_state[f"bx_{fk}"] = st.session_state.pos_back[f"{fk}_x"]
                     st.session_state[f"by_{fk}"] = st.session_state.pos_back[f"{fk}_y"]
@@ -679,9 +683,9 @@ with tab_front:
 
         # ── Photo ቦታ ──────────────────────────────────────────────
         st.markdown("**📸 ፎቶ (Profile ምስል)**")
-        # ሁሌም pos ላይ ያለ ዋጋ ያንብብ (Firebase load ከተደረገ ይዘምናል)
         for pk in ['photo_x','photo_y','photo_w','photo_h']:
-            st.session_state[f"fp_{pk}"] = st.session_state.pos.get(pk, DEFAULT_SETTINGS['pos'][pk])
+            if f"fp_{pk}" not in st.session_state:
+                st.session_state[f"fp_{pk}"] = st.session_state.pos.get(pk, DEFAULT_SETTINGS['pos'][pk])
         ph_c1, ph_c2, ph_c3, ph_c4 = st.columns(4)
         with ph_c1:
             st.caption("X")
@@ -764,11 +768,11 @@ with tab_front:
 
                     # Photo — Profile ምስል ከ session_state (BGRA transparent support)
                     if st.session_state.photo_cropped is not None:
-                        raw = st.session_state.photo_cropped
-                        pw_v = int(st.session_state.pos.get('photo_w', 190))
-                        ph_v = int(st.session_state.pos.get('photo_h', 240))
-                        px_v = int(st.session_state.pos.get('photo_x', 105))
-                        py_v = int(st.session_state.pos.get('photo_y', 165))
+                        raw  = st.session_state.photo_cropped
+                        pw_v = int(st.session_state.get('fp_photo_w', 190))
+                        ph_v = int(st.session_state.get('fp_photo_h', 240))
+                        px_v = int(st.session_state.get('fp_photo_x', 105))
+                        py_v = int(st.session_state.get('fp_photo_y', 165))
                         if raw.shape[2] == 4:
                             # BGRA → RGBA PIL
                             ph_img = Image.fromarray(cv2.cvtColor(raw, cv2.COLOR_BGRA2RGBA), 'RGBA')
@@ -977,7 +981,8 @@ with tab_back:
         # ── QR Code ቦታ ────────────────────────────────────────────
         st.markdown("**📷 QR Code (Profile ምስል)**")
         for qk in ['qr_x','qr_y','qr_w','qr_h']:
-            st.session_state[f"bp_{qk}"] = st.session_state.pos_back.get(qk, DEFAULT_SETTINGS_BACK['pos'][qk])
+            if f"bp_{qk}" not in st.session_state:
+                st.session_state[f"bp_{qk}"] = st.session_state.pos_back.get(qk, DEFAULT_SETTINGS_BACK['pos'][qk])
         qr_c1, qr_c2, qr_c3, qr_c4 = st.columns(4)
         with qr_c1:
             st.caption("X")
@@ -1063,10 +1068,10 @@ with tab_back:
                     # QR Code — Profile ምስል ከ session_state
                     if st.session_state.qr_cropped is not None:
                         qr_img = Image.fromarray(cv2.cvtColor(st.session_state.qr_cropped, cv2.COLOR_BGR2RGB))
-                        qw = int(st.session_state.pos_back.get('qr_w', 200))
-                        qh = int(st.session_state.pos_back.get('qr_h', 200))
-                        qx = int(st.session_state.pos_back.get('qr_x', 100))
-                        qy = int(st.session_state.pos_back.get('qr_y', 150))
+                        qw = int(st.session_state.get('bp_qr_w', 200))
+                        qh = int(st.session_state.get('bp_qr_h', 200))
+                        qx = int(st.session_state.get('bp_qr_x', 100))
+                        qy = int(st.session_state.get('bp_qr_y', 150))
                         bg_back.paste(qr_img.resize((qw, qh), Image.LANCZOS), (qx, qy))
 
                     st.image(bg_back, caption="✅ የተዘጋጀ ፋይዳ መታወቂያ (Back)", use_container_width=True)
