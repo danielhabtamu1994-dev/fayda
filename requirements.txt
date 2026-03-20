@@ -1,7 +1,7 @@
 streamlit
 pytesseract
 pillow
-opencv-python-headless
+opencv-python-headless==4.8.1.78
 numpy
 python-barcode
 mediapipe
