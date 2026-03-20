@@ -415,6 +415,11 @@ if uploaded_profile:
             else:
                 photo_crop = card_bgr[:ch//2, :]
 
+            # ── 4 ጎን 5px ይቁረጥ ─────────────────────────────────
+            trim = 5
+            ph2, pw2 = photo_crop.shape[:2]
+            photo_crop = photo_crop[trim:ph2-trim, trim:pw2-trim]
+
             # ── Background removal — FloodFill from sample points ──
             ph2, pw2 = photo_crop.shape[:2]
             try:
@@ -434,7 +439,7 @@ if uploaded_profile:
                 # BGR copy ለ floodfill
                 bgr_work = photo_crop.copy()
 
-                tolerance = 5   # ቀለም tolerance — contiguous only
+                tolerance = 1   # ቀለም tolerance — contiguous only
 
                 for (sx, sy) in sample_points:
                     seed_color = bgr_work[sy, sx].tolist()
