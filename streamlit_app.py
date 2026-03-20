@@ -10,7 +10,7 @@ import json
 
 FONT_AMH    = "AbyssinicaSIL-Regular.ttf"
 FONT_ENG    = "Inter_18pt-Bold.ttf"
-BG_PATH      = "20260319_215211.jpg"
+BG_PATH      = "id_front_215211.jpg"
 BG_PATH_BACK = "20260319_211337.jpg"
 FIREBASE_URL = "https://fayda-b365f-default-rtdb.firebaseio.com/settings.json"
 
