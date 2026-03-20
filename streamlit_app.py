@@ -434,7 +434,7 @@ if uploaded_profile:
                 # BGR copy ለ floodfill
                 bgr_work = photo_crop.copy()
 
-                tolerance = 30  # ቀለም tolerance
+                tolerance = 5   # ቀለም tolerance — contiguous only
 
                 for (sx, sy) in sample_points:
                     seed_color = bgr_work[sy, sx].tolist()
@@ -445,6 +445,7 @@ if uploaded_profile:
                         loDiff=(tolerance, tolerance, tolerance, 0),
                         upDiff=(tolerance, tolerance, tolerance, 0),
                         flags=cv2.FLOODFILL_MASK_ONLY | (255 << 8)
+                        # FIXED_RANGE የለም — contiguous (ጎረቤት pixel ብቻ ያወዳድራል)
                     )
 
                 # flood_mask[1:-1, 1:-1] = background pixels
